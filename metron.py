@@ -27,6 +27,9 @@ from urllib.parse import urljoin
 import requests
 from requests.auth import HTTPBasicAuth
 from pyrate_limiter import Duration, RequestRate, Limiter
+
+#import mokkari
+
 import settngs
 from typing_extensions import Required, TypedDict
 
@@ -185,13 +188,25 @@ class MetSeries(TypedDict, total=False):
 class MetSeriesList(TypedDict):
     id: int
     series: str
+    year_began: int
+    number: int
+    issue_count: int
     modified: str
+
+
+class MetIssueListSeries(TypedDict):
+    name: str
+    volume: int
+    year_began: int
 
 
 class MetIssueList(TypedDict):
     id: int
+    series: MetIssueListSeries
+    number: int
     issue: str
     cover_date: str
+    image: str
     modified: str
 
 
@@ -219,7 +234,7 @@ class MetronTalkerExt(ComicTalker):
         self.default_api_url = self.api_url = f"{self.website}/api/"
         self.default_api_key = self.api_key = ""
         self.username: str = ""
-        self.user_password: str = ""
+        self.user_password: str = self.api_key
         self.remove_html_tables: bool = False
         self.use_series_start_as_volume: bool = False
 
@@ -261,7 +276,7 @@ class MetronTalkerExt(ComicTalker):
         settings = super().parse_settings(settings)
 
         self.username = settings["met_username"]
-        self.user_password = settings["met_user_password"]
+        # self.user_password = settings["met_user_password"]
         return settings
 
     def check_api_key(self, url: str, key: str) -> tuple[str, bool]:
@@ -475,6 +490,8 @@ class MetronTalkerExt(ComicTalker):
 
     @limiter.ratelimit("metron", delay=True)
     def _get_url_content(self, url: str, params: dict[str, Any]) -> Any:
+        #metron_api = mokkari.api(self.username, self.user_password)
+        #test = metron_api.series_list(params)
         # connect to server:
         # if there is a 500 error, try a few more times before giving up
         # any other error, just bail
@@ -539,7 +556,7 @@ class MetronTalkerExt(ComicTalker):
                     count_of_issues=record.get("issue_count", 0),
                     description=record.get("desc", ""),
                     id=str(record["id"]),
-                    image_url="",
+                    image_url=record.get("image", ""),
                     name=series_name,
                     publisher=pub_name,
                     start_year=start_year,
@@ -591,12 +608,6 @@ class MetronTalkerExt(ComicTalker):
             else:
                 series = self._fetch_series_data(record["series"]["id"])
 
-            # issue number format: The Uncanny X-Men (1981) #142
-            if record.get("issue"):
-                issue_number = record["issue"].split("#")[1]
-            if record.get("number"):
-                issue_number = record["number"]
-
             name = ""
             if record.get("name"):
                 name = record["name"][0]
@@ -611,7 +622,7 @@ class MetronTalkerExt(ComicTalker):
                     description=record.get("desc", ""),
                     id=str(record["id"]),
                     image_url=image_url,
-                    issue_number=issue_number,
+                    issue_number=record["number"],
                     name=name,
                     site_detail_url=record.get("resource_url", ""),
                     series=series,
