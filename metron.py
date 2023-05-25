@@ -1,5 +1,5 @@
 """
-Metron.cloud information source
+Metron.cloud information source for Comic Tagger
 """
 # Copyright comictagger team
 #
@@ -17,208 +17,22 @@ Metron.cloud information source
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import pathlib
-import time
-from typing import Any, Callable, Generic, TypeVar
-from urllib.parse import urljoin
-
-import requests
-from requests.auth import HTTPBasicAuth
-from pyrate_limiter import Duration, RequestRate, Limiter
-
-#import mokkari
-
-import settngs
-from typing_extensions import Required, TypedDict
+from typing import Any, Callable
 
 import comictalker.talker_utils as talker_utils
+import mokkari
+import settngs
 from comicapi import utils
 from comicapi.genericmetadata import GenericMetadata
-from comicapi.issuestring import IssueString
 from comictalker.comiccacher import ComicCacher
-from comictalker.comictalker import ComicTalker, TalkerDataError, TalkerNetworkError
+from comictalker.comictalker import ComicTalker, TalkerNetworkError
 from comictalker.resulttypes import ComicIssue, ComicSeries, Credit
+from mokkari.issue import Issue, IssuesList
+from mokkari.series import Series, SeriesList
 
 logger = logging.getLogger(__name__)
-
-
-class MetArc(TypedDict):
-    id: int
-    name: str
-    desc: str
-    image: str
-    resource_url: str
-    modified: str
-
-
-class MetTeam(TypedDict):
-    id: int
-    name: str
-    desc: str
-    image: str
-    creators: list[MetCreator]
-    resource_url: str
-    modified: str
-
-
-class MetCreator(TypedDict):
-    id: int
-    name: str
-    birth: str
-    death: str
-    desc: str
-    image: str
-    alias: list[str]
-    resource_url: str
-    modified: str
-
-
-class MetCharacter(TypedDict):
-    id: int
-    name: str
-    alias: list[str]
-    desc: str
-    image: str
-    creators: list[MetCreator]
-    teams: list[MetTeam]
-    resource_url: str
-    modified: str
-
-
-class MetPublisher(TypedDict):
-    id: int
-    name: str
-    founded: int
-    desc: str
-    image: str
-    resource_url: str
-    modified: str
-
-
-class MetGenre(TypedDict):
-    id: int
-    name: str
-
-
-class MetRating(TypedDict):
-    id: int
-    name: str
-
-
-class MetRole(TypedDict):
-    id: int
-    name: str
-
-
-class MetCredit(TypedDict):
-    id: int
-    creator: str
-    role: list[MetRole]
-
-
-class MetReprint(TypedDict):
-    id: int
-    name: str
-
-
-class MetVariant(TypedDict):
-    name: str
-    sku: str
-    upc: str
-    image: str
-
-
-class MetSeriesType(TypedDict):
-    id: int
-    name: str
-
-
-class MetAssociated(TypedDict):
-    id: int
-    series: str
-
-
-class MetIssue(TypedDict, total=False):
-    id: int
-    publisher: MetPublisher
-    series: MetSeries
-    genres: list[MetGenre]
-    number: str
-    title: str
-    name: list[str]
-    cover_date: str
-    store_date: str
-    price: str
-    rating: MetRating
-    sku: str
-    isdn: str
-    ups: str
-    page: int
-    desc: str
-    image: str
-    arcs: list[MetArc]
-    credits: list[MetCredit]
-    characters: list[MetCharacter]
-    teams: list[MetTeam]
-    reprints: list[MetReprint]
-    variants: list[MetVariant]
-    resource_url: str
-    modified: str
-
-
-class MetSeries(TypedDict, total=False):
-    id: int
-    name: str
-    sort_name: str
-    volume: int
-    series_type: MetSeriesType
-    publisher: MetPublisher
-    year_began: int
-    year_end: int
-    desc: str
-    issue_count: int
-    genres: list[MetGenre]
-    associated: list[MetAssociated]
-    resource_url: str
-    modified: str
-
-
-class MetSeriesList(TypedDict):
-    id: int
-    series: str
-    year_began: int
-    number: int
-    issue_count: int
-    modified: str
-
-
-class MetIssueListSeries(TypedDict):
-    name: str
-    volume: int
-    year_began: int
-
-
-class MetIssueList(TypedDict):
-    id: int
-    series: MetIssueListSeries
-    number: int
-    issue: str
-    cover_date: str
-    image: str
-    modified: str
-
-
-class MetResult(TypedDict):
-    count: int
-    next: str
-    previous: str
-    results: list[MetSeriesList] | list[MetIssueList]
-
-
-# Metron has a limit of 30 calls per minute
-limiter = Limiter(RequestRate(30, Duration.MINUTE))
 
 
 class MetronTalkerExt(ComicTalker):
@@ -235,8 +49,9 @@ class MetronTalkerExt(ComicTalker):
         self.default_api_key = self.api_key = ""
         self.username: str = ""
         self.user_password: str = self.api_key
-        self.remove_html_tables: bool = False
         self.use_series_start_as_volume: bool = False
+        # TODO Probably too heavy on API?
+        self.check_variants: bool = False
 
     def register_settings(self, parser: settngs.Manager) -> None:
         parser.add_setting(
@@ -246,13 +61,13 @@ class MetronTalkerExt(ComicTalker):
             display_name="Use series start as volume",
             help="Use the series start year as the volume number",
         )
-        parser.add_setting(
-            "--met-remove-html-tables",
+        """parser.add_setting(
+            "--met-check-variants",
             default=False,
             action=argparse.BooleanOptionalAction,
-            display_name="Remove HTML tables",
-            help="Removes html tables instead of converting them to text",
-        )
+            display_name="Check cover variants when auto-tagging",
+            help="Check for cover variants. *This will cause an additional API call and may result in longer times*",
+        )"""
         parser.add_setting(
             "--met-username",
             default="",
@@ -265,6 +80,7 @@ class MetronTalkerExt(ComicTalker):
             display_name="API Password",
             help=f"Use the given Metron API password. (default: {self.default_api_key})",
         )
+        # TODO Hide
         parser.add_setting(
             f"--{self.id}-url",
             default="",
@@ -276,37 +92,27 @@ class MetronTalkerExt(ComicTalker):
         settings = super().parse_settings(settings)
 
         self.username = settings["met_username"]
-        # self.user_password = settings["met_user_password"]
+        self.user_password = settings["metron_key"]
+
         return settings
 
     def check_api_key(self, url: str, key: str) -> tuple[str, bool]:
-        url = talker_utils.fix_url(url)
-        if not url:
-            url = self.default_api_url
+        metron_api = mokkari.api(self.username, key, user_agent="comictagger/" + self.version)
         try:
-            test_url = urljoin(url, "series/1")
-
-            met_response: MetSeries = requests.get(
-                test_url,
-                headers={"user-agent": "comictagger/" + self.version},
-                auth=HTTPBasicAuth(self.username, key),
-            ).json()
-
-            if met_response.get("detail"):
-                return met_response["detail"], False
-
+            metron_api.series(1)
             return "The API access test was successful", True
-
-        except Exception:
-            return "Failed to connect to the API! Incorrect URL?", False
+        except mokkari.exceptions.AuthenticationError:
+            return "Access denied. Invalid username or password.", False
+        except mokkari.exceptions.ApiError as e:
+            return f"API error: {e}", False
 
     def search_for_series(
-            self,
-            series_name: str,
-            callback: Callable[[int, int], None] | None = None,
-            refresh_cache: bool = False,
-            literal: bool = False,
-            series_match_thresh: int = 90,
+        self,
+        series_name: str,
+        callback: Callable[[int, int], None] | None = None,
+        refresh_cache: bool = False,
+        literal: bool = False,
+        series_match_thresh: int = 90,
     ) -> list[ComicSeries]:
         search_series_name = utils.sanitize_title(series_name, literal)
         logger.info(f"{self.name} searching: {search_series_name}")
@@ -320,61 +126,10 @@ class MetronTalkerExt(ComicTalker):
             if len(cached_search_results) > 0:
                 return cached_search_results
 
-        params = {
-            "name": search_series_name,
-            "page": 1,
-        }
-
-        met_response: MetResult[list[MetSeriesList]] = self._get_cv_content(urljoin(self.api_url, "series"), params)
-
-        search_results: list[MetSeriesList] = []
-
-        current_result_count = len(met_response["results"])
-        total_result_count = met_response["count"]
-
-        # 1. Don't fetch more than some sane amount of pages.
-        # 2. Halt when any result on the current page is less than or equal to a set ratio using thefuzz
-        max_results = 500  # 5 pages
-
-        total_result_count = min(total_result_count, max_results)
-
-        if callback is None:
-            logger.debug(
-                f"Found {current_result_count} of {total_result_count} results"
-            )
-        search_results.extend(met_response["results"])
-        page = 1
-
-        if callback is not None:
-            callback(len(met_response["results"]), total_result_count)
-
-        # see if we need to keep asking for more pages...
-        while current_result_count < met_response['count']:
-            if not literal:
-                # Stop searching once any entry falls below the threshold
-                stop_searching = any(
-                    not utils.titles_match(search_series_name, series["series"], series_match_thresh)
-                    for series in met_response["results"]
-                )
-
-                if stop_searching:
-                    break
-
-            if callback is None:
-                logger.debug(f"getting another page of results {page * 100} of {total_result_count}...")
-            page += 1
-
-            params["page"] = page
-            met_response = self._get_cv_content(urljoin(self.api_url, "series/"), params)
-
-            search_results.extend(met_response["results"])
-            current_result_count += len(met_response["results"])
-
-            if callback is not None:
-                callback(current_result_count, total_result_count)
+        met_response: SeriesList = self._get_metron_content("series_list", {"name": search_series_name})
 
         # Format result to ComicIssue
-        formatted_search_results = self._format_search_results(search_results)
+        formatted_search_results = self._format_search_results(met_response.series)
 
         # Cache these search results, even if it's literal we cache the results
         # The most it will cause is extra processing time
@@ -383,7 +138,10 @@ class MetronTalkerExt(ComicTalker):
         return formatted_search_results
 
     def fetch_comic_data(
-            self, issue_id: str | None = None, series_id: str | None = None, issue_number: str = ""
+        self,
+        issue_id: str | None = None,
+        series_id: str | None = None,
+        issue_number: str = "",
     ) -> GenericMetadata:
         comic_data = GenericMetadata()
         if issue_id:
@@ -393,51 +151,33 @@ class MetronTalkerExt(ComicTalker):
 
         return comic_data
 
-    def fetch_issues_by_series(self, series_id: str) -> list[ComicIssue]:
+    def fetch_issues_by_series(self, series_id: int) -> list[ComicIssue]:
         # before we search online, look in our cache, since we might already have this info
         cvc = ComicCacher(self.cache_folder, self.version)
-        cached_series_issues_result = cvc.get_series_issues_info(series_id, self.id)
+        cached_series_issues_result = cvc.get_series_issues_info(str(series_id), self.id)
 
-        series_data = self._fetch_series_data(int(series_id))
+        # Need the issue count to check against the cached issue list
+        series_data = self._fetch_series_data(series_id)
 
+        # Check cache length against count of issues in case a new issue has
         if len(cached_series_issues_result) == series_data.count_of_issues:
             return cached_series_issues_result
 
-        # https://metron.cloud/api/issue/?series_id={id}
+        # TODO If option is set, fetch full issue info for variant covers and/or use variant call when added
+        met_response: IssuesList = self._get_metron_content("issues_list", {"series_id": series_id})
 
-        params = {
-            "series_id": series_id,
-            "page": 1,
-        }
-        met_response: MetResult[list[MetIssue]] = self._get_cv_content(urljoin(self.api_url, "issue/"), params)
-
-        current_result_count = len(met_response["results"])
-        total_result_count = met_response["count"]
-
-        series_issues_result = met_response["results"]
-        page = 1
-
-        # see if we need to keep asking for more pages...
-        while current_result_count < total_result_count:
-            page += 1
-            params["page"] = page
-            met_response = self._get_cv_content(urljoin(self.api_url, "issue/"), params)
-
-            series_issues_result.extend(met_response["results"])
-            current_result_count += len(met_response["results"])
-
-        # Format to expected output
+        # Format to ComicIssue
         # Pass along series id as issue list won't contain it
-        formatted_series_issues_result = self._format_issue_results(series_issues_result, False, int(series_id))
+        formatted_series_issues_result = self._format_issue_list_results(met_response, series_id)
 
         cvc.add_series_issues_info(self.id, formatted_series_issues_result)
 
         return formatted_series_issues_result
 
     def fetch_issues_by_series_issue_num_and_year(
-            self, series_id_list: list[str], issue_number: str, year: str | int | None
+        self, series_id_list: list[str], issue_number: str, year: str | int | None
     ) -> list[ComicIssue]:
-
+        issues_result = []
         int_year = utils.xlate_int(year)
         if int_year is not None:
             year = str(int_year)
@@ -446,241 +186,232 @@ class MetronTalkerExt(ComicTalker):
             params = {
                 "series_id": series_id,
                 "number": issue_number,
-                "page": 1,
             }
 
             if int_year:
-                params["cover_year"]: year
+                params["cover_year"] = year  # type: ignore
 
-            met_response: MetResult[list[MetIssue]] = self._get_cv_content(urljoin(self.api_url, "issue/"), params)
+            met_response: IssuesList = self._get_metron_content("issues_list", params)
+            # Pass along series id as issue list does not contain it
+            formatted_result = self._format_issue_list_results(met_response, int(series_id))
+            issues_result.extend(formatted_result)
 
-            current_result_count = len(met_response["results"])
-            total_result_count = met_response["count"]
+        return issues_result
 
-            filtered_issues_result = met_response["results"]
-            page = 1
+    def _get_metron_content(
+        self, endpoint: str, params: dict[str, Any] | int
+    ) -> list[Series] | list[Issue] | Issue | Series | SeriesList | IssuesList:
+        """Use the mokkari python library to retrieve data from Metron.cloud"""
+        metron_api = mokkari.api(self.username, self.user_password, user_agent="comictagger/" + self.version)
 
-            # see if we need to keep asking for more pages...
-            while current_result_count < total_result_count:
-                page += 1
+        try:
+            result = getattr(metron_api, endpoint)(params)
+        except mokkari.exceptions.AuthenticationError:
+            logger.debug("Access denied. Invalid username or password.")
+            raise TalkerNetworkError(self.name, 1, "Access denied. Invalid username or password.")
+        except mokkari.exceptions.ApiError as e:
+            logger.debug(f"API error: {e}")
+            raise TalkerNetworkError(self.name, 1, f"API error: {e}")
 
-                params["page"] = page
-                met_response = self._get_cv_content(urljoin(self.api_url, "issue/"), params)
+        return result
 
-                filtered_issues_result.extend(met_response["results"])
-                current_result_count += len(met_response["results"])
-
-        # Pass along series id as issue list does not contain it
-        formatted_filtered_issues_result = self._format_issue_results(filtered_issues_result, False, int(series_id))
-
-        return formatted_filtered_issues_result
-
-    def _get_cv_content(self, url: str, params: dict[str, Any]) -> MetResult:
-        while True:
-            met_response: MetResult = self._get_url_content(url, params)
-            if met_response.get("detail"):
-                logger.debug(
-                    f"{self.name} query failed with error: {met_response['detail']}"
-                )
-                raise TalkerNetworkError(self.name, 0, f"{met_response['detail']}")
-
-            # it's all good
-            break
-        return met_response
-
-    @limiter.ratelimit("metron", delay=True)
-    def _get_url_content(self, url: str, params: dict[str, Any]) -> Any:
-        #metron_api = mokkari.api(self.username, self.user_password)
-        #test = metron_api.series_list(params)
-        # connect to server:
-        # if there is a 500 error, try a few more times before giving up
-        # any other error, just bail
-        for tries in range(3):
-            try:
-                resp = requests.get(url, params=params, headers={"user-agent": "comictagger/" + self.version}, auth=HTTPBasicAuth(self.username, self.api_key))
-                if resp.status_code == 200:
-                    if resp.headers["Content-Type"].split(";")[0] == "text/html":
-                        logger.debug("Request exception: Returned text/html. Most likely a 404 error page.")
-                        raise TalkerNetworkError(self.name, 0, "Request exception: Returned text/html. Most likely a 404 error page.")
-                    return resp.json()
-                if resp.status_code == 500:
-                    logger.debug(f"Try #{tries + 1}: ")
-                    time.sleep(1)
-                    logger.debug(str(resp.status_code))
-                if resp.status_code == 403:
-                    logger.debug("Access denied. Wrong username or password?")
-                    raise TalkerNetworkError(self.name, 1, "Access denied. Wrong username or password?")
-                if resp.status_code == 401:
-                    logger.debug("Access denied. Invalid username or password.")
-                    raise TalkerNetworkError(self.name, 1, "Access denied. Invalid username or password.")
-                else:
-                    break
-
-            except requests.exceptions.Timeout:
-                logger.debug(f"Connection to {self.name} timed out.")
-                raise TalkerNetworkError(self.name, 4)
-            except requests.exceptions.RequestException as e:
-                logger.debug(f"Request exception: {e}")
-                raise TalkerNetworkError(self.name, 0, str(e)) from e
-            except json.JSONDecodeError as e:
-                logger.debug(f"JSON decode error: {e}")
-                raise TalkerDataError(self.name, 2, "ComicVine did not provide json")
-
-        raise TalkerNetworkError(self.name, 5)
-
-    # Search results and full series data
-    def _format_search_results(self, search_results: list[MetSeries] | list[MetSeriesList]) -> list[ComicSeries]:
+    def _format_search_results(self, search_results: SeriesList) -> list[ComicSeries]:
         formatted_results = []
         for record in search_results:
             # Flatten publisher to name only
-            if record.get("publisher") is None:
-                pub_name = ""
-            else:
-                pub_name = record["publisher"].get("name", "")
-
-            start_year = utils.xlate_int(record.get("year_began", ""))
-
-            # TODO Add genres and volume when fields have been added to ComicSeries
-
-            # TODO Figure out number of volumes/issues? Use cancelled/ended?
+            pub_name = ""
+            # pub_name = record.publisher.name
 
             # Option to use sort name?
-            if record.get("series"):
-                series_name = record["series"]
-            else:
-                series_name = record["name"]
+            # display_name contains (year) which will mess up fuzzy search results
+            series_name = record.display_name
+            series_name_array = record.display_name.split("(")
+            series_name_len = len(series_name_array)
+            if series_name_len:
+                series_name = ""
+                for i, series in enumerate(series_name_array):
+                    if i < series_name_len - 1:
+                        series_name += series.replace(")", "")
+
+            img = ""
+            # series_name = record.image
 
             formatted_results.append(
                 ComicSeries(
                     aliases=[],
-                    count_of_issues=record.get("issue_count", 0),
-                    description=record.get("desc", ""),
-                    id=str(record["id"]),
-                    image_url=record.get("image", ""),
+                    count_of_issues=record.issue_count,
+                    description="",
+                    id=str(record.id),
+                    image_url=img,
                     name=series_name,
                     publisher=pub_name,
-                    start_year=start_year,
+                    start_year=record.year_began,
                 )
             )
 
         return formatted_results
 
-    def _format_issue_results(self, issue_results: list[MetIssue] | list[MetIssueList], complete: bool = False, series_id: int = 0) -> list[ComicIssue]:
+    def _format_series_results(self, search_result: Series) -> ComicSeries:
+        # Flatten publisher to name only
+        pub_name = search_result.publisher.name
+
+        # TODO Add additional fields when added to ComicSeries
+
+        # Option to use sort name?
+        series_name = search_result.name
+
+        desc = search_result.desc
+
+        img = ""
+        # TODO When in API
+        # img = record.image
+
+        formatted_result = ComicSeries(
+            aliases=[],
+            count_of_issues=search_result.issue_count,
+            description=desc,
+            id=str(search_result.id),
+            image_url=img,
+            name=series_name,
+            publisher=pub_name,
+            start_year=search_result.year_began,
+        )
+
+        return formatted_result
+
+    def _format_issue_list_results(self, issue_results: IssuesList, series_id: int = 0) -> list[ComicIssue]:
         formatted_results = []
         for record in issue_results:
-            # Extract image super and thumb to name only
-            if record.get("image") is None:
-                image_url = ""
-            else:
-                image_url = record["image"]
-
-            alt_images_list = []
-
-            # TODO Add genres when fields have been added to ComicIssue
-
-            # TODO Figure out number of issues? Use cancelled/ended?
-
-            character_list = []
-            if record.get("characters"):
-                for char in record["characters"]:
-                    character_list.append(char["name"])
-
-            location_list = []
-
-            teams_list = []
-            if record.get("teams"):
-                for loc in record["teams"]:
-                    teams_list.append(loc["name"])
-
-            story_list = []
-            if record.get("arcs"):
-                for loc in record["arcs"]:
-                    story_list.append(loc["name"])
-
-            persons_list = []
-            if record.get("credits"):
-                for person in record["credits"]:
-                    for role in person["role"]:
-                        persons_list.append(Credit(name=person["creator"], role=role["name"]))
-
             if series_id:
                 series = self._fetch_series_data(series_id)
             else:
-                series = self._fetch_series_data(record["series"]["id"])
-
-            name = ""
-            if record.get("name"):
-                name = record["name"][0]
-
-            if record.get("issue"):
-                name = record["issue"]
+                series = ComicSeries(
+                    aliases=[],
+                    id="0",
+                    count_of_issues=None,
+                    description="",
+                    image_url="",
+                    name=record.series.name,
+                    publisher="",
+                    start_year=record.series.year_began,
+                )
 
             formatted_results.append(
                 ComicIssue(
                     aliases=[],
-                    cover_date=record.get("cover_date", ""),
-                    description=record.get("desc", ""),
-                    id=str(record["id"]),
-                    image_url=image_url,
-                    issue_number=record["number"],
-                    name=name,
-                    site_detail_url=record.get("resource_url", ""),
+                    cover_date=str(record.cover_date),
+                    description="",
+                    id=str(record.id),
+                    image_url=record.image,
+                    issue_number=record.number,
+                    name=record.issue_name,
+                    site_detail_url="",
                     series=series,
-                    alt_image_urls=alt_images_list,
-                    characters=character_list,
-                    locations=location_list,
-                    teams=teams_list,
-                    story_arcs=story_list,
-                    credits=persons_list,
-                    complete=complete,
+                    alt_image_urls=[],
+                    characters=[],
+                    locations=[],
+                    teams=[],
+                    story_arcs=[],
+                    credits=[],
+                    complete=False,
                 )
             )
 
         return formatted_results
+
+    def _format_issue_results(self, issue_result: Issue, complete: bool = False, series_id: int = 0) -> ComicIssue:
+        # TODO Add genres, age rating, volume, etc. when fields have been added to ComicIssue
+
+        alt_images_list = []
+        for variant in issue_result.variants:
+            alt_images_list.append(variant.image)
+
+        character_list = []
+        for char in issue_result.characters:
+            character_list.append(char.name)
+
+        location_list: list = []
+
+        teams_list = []
+        for team in issue_result.teams:
+            teams_list.append(team.name)
+
+        story_list = []
+        for arc in issue_result.arcs:
+            story_list.append(arc.name)
+
+        persons_list = []
+        for person in issue_result.credits:
+            # Creator can have multiple roles
+            for role in person.role:
+                persons_list.append(Credit(name=person.creator, role=role.name))
+
+        if series_id:
+            series = self._fetch_series_data(series_id)
+        else:
+            series = self._fetch_series_data(issue_result.series.id)
+
+        # series_type == 2 is "cancelled series" there appears to be no "ended"
+        # 11 "Limited Series"
+        # 5 "One-Shot"
+        # 1 "Ongoing Series"
+        # TODO When ComicSeries has format, use to validate count
+
+        if issue_result.series.series_type.id == 1:
+            series.count_of_issues = None
+
+        name = issue_result.collection_title
+
+        # Add option to use first (all csv?) story title if no title
+        # if issue_result.story_titles[0]:
+        # name = issue_result.story_titles[0]
+
+        formatted_result = ComicIssue(
+            aliases=[],
+            cover_date=str(issue_result.cover_date),
+            description=issue_result.desc,
+            id=str(issue_result.id),
+            image_url=issue_result.image,
+            issue_number=issue_result.number,
+            name=name,
+            site_detail_url=issue_result.resource_url,
+            series=series,
+            alt_image_urls=alt_images_list,
+            characters=character_list,
+            locations=location_list,
+            teams=teams_list,
+            story_arcs=story_list,
+            credits=persons_list,
+            complete=complete,
+        )
+
+        return formatted_result
 
     def _fetch_series_data(self, series_id: int) -> ComicSeries:
         # before we search online, look in our cache, since we might already have this info
         cvc = ComicCacher(self.cache_folder, self.version)
         cached_series_result = cvc.get_series_info(str(series_id), self.id)
 
-        # Because of the limited amount of data from API, check count_of_issues. A 0 means no full data.
-        if cached_series_result is not None and cached_series_result.count_of_issues != 0:
+        # No publisher (or desc) indicates none full record
+        if cached_series_result is not None and cached_series_result.publisher:
             return cached_series_result
 
-        series_url = urljoin(self.api_url, f"series/{series_id}")
-
-        met_response: MetResult[MetSeries] = self._get_cv_content(series_url, {})
-
-        formatted_series_results = self._format_search_results([met_response])
+        met_response: Series = self._get_metron_content("series", series_id)
+        formatted_series_results = self._format_series_results(met_response)
 
         if met_response:
-            cvc.add_series_info(self.id, formatted_series_results[0])
+            cvc.add_series_info(self.id, formatted_series_results)
 
-        return formatted_series_results[0]
+        return formatted_series_results
 
     def _fetch_issue_data(self, series_id: int, issue_number: str) -> GenericMetadata:
-        issues_list_results = self.fetch_issues_by_series(str(series_id))
+        met_response: IssuesList = self._get_metron_content(
+            "issues_list", {"series_id": series_id, "number": issue_number}
+        )
+        if len(met_response.issues) > 0:
+            # Presume only one result
+            return self._fetch_issue_data_by_issue_id(met_response.issues[0].id)
 
-        # Loop through issue list to find the required issue info
-        f_record = None
-        for record in issues_list_results:
-            if not IssueString(issue_number).as_string():
-                issue_number = "1"
-            if (
-                    IssueString(record.issue_number).as_string().casefold()
-                    == IssueString(issue_number).as_string().casefold()
-            ):
-                f_record = record
-                break
-
-        if f_record and f_record.complete:
-            # Cache had full record
-            return talker_utils.map_comic_issue_to_metadata(
-                f_record, self.name, self.remove_html_tables, self.use_series_start_as_volume
-            )
-
-        if f_record is not None:
-            return self._fetch_issue_data_by_issue_id(f_record.id)
         return GenericMetadata()
 
     def _fetch_issue_data_by_issue_id(self, issue_id: str) -> GenericMetadata:
@@ -689,30 +420,37 @@ class MetronTalkerExt(ComicTalker):
         cached_issues_result = cvc.get_issue_info(int(issue_id), self.id)
 
         if cached_issues_result and cached_issues_result.complete:
+            # TODO Some way to remove count_of_issues if ongoing? Possible when format is in ComicSeries
             return talker_utils.map_comic_issue_to_metadata(
                 cached_issues_result,
                 self.name,
-                self.remove_html_tables,
+                False,
                 self.use_series_start_as_volume,
             )
 
-        issue_url = urljoin(self.api_url, f"issue/{issue_id}")
-        met_response: MetResult[MetIssue] = self._get_cv_content(issue_url, {})
-
-        issue_result = met_response
+        met_response: Issue = self._get_metron_content("issue", int(issue_id))
 
         # Format to expected output
-        met_issue = self._format_issue_results([issue_result], True, 0)
+        met_issue = self._format_issue_results(met_response, True, 0)
 
-        # Copy publisher from issue to series.
-        # met_issue[0].series.publisher = met_response["publisher"]["name"]
+        # Get full series info
+        series_data = self._fetch_series_data(met_response.series.id)
 
-        cvc.add_series_issues_info(self.id, met_issue)
+        # Count of issues is valid if cancelled (ended)
+        if met_response.series.series_type == 2:
+            met_issue.series.count_of_issues = series_data.count_of_issues
+        else:
+            met_issue.series.count_of_issues = None
+
+            # Copy desc as it will be missing
+        met_issue.series.description = series_data.description
+
+        cvc.add_series_issues_info(self.id, [met_issue])
 
         # Now, map the ComicIssue data to generic metadata
         return talker_utils.map_comic_issue_to_metadata(
-            met_issue[0],
+            met_issue,
             self.name,
-            self.remove_html_tables,
+            False,
             self.use_series_start_as_volume,
         )

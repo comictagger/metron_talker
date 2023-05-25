@@ -1,0 +1,19 @@
+[tool.black]
+line-length = 120
+
+[tool.isort]
+line_length = 120
+profile = "black"
+
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=3.4"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
+
+[tool.pylint.messages_control]
+disable = "C0330, C0326, C0115, C0116, C0103"
+
+[tool.pylint.format]
+max-line-length=120
