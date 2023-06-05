@@ -1,0 +1,14 @@
+[plugin.details]
+name = "metron-talker-plugin"
+version = "0.0.1"
+# To define the entry point name?
+type = "talker"
+description = "Comic talker for Metron.cloud"
+
+[plugin.requires]
+comictagger = ">=1.6.0a4"
+mokkari = ">=2.5.0"
+
+[plugin.entry_point]
+entry_point = "comictagger.talker" # Not needed if using "type" above?
+metron = "plugins.metron-talker-plugin.main:MetronTalkerExt"
