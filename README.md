@@ -4,7 +4,9 @@ A plugin for [Comic Tagger](https://github.com/comictagger/comictagger/releases)
 
 ## Work in progress
 
-Requires a version of Comic Tagger >=1.6.0a4
+Requires a version of Comic Tagger git@0f07fc3 (minimum)
+
+Some options will cause longer processing times, check help messages.
 
 ## Install
 
