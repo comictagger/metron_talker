@@ -88,7 +88,6 @@ class MetronTalkerExt(ComicTalker):
         self.username: str = ""
         self.user_password: str = self.api_key
         self.use_series_start_as_volume: bool = False
-        self.check_variants: bool = False
         self.display_variants: bool = False
         self.use_ongoing_issue_count: bool = False
         self.find_series_covers: bool = False
@@ -100,13 +99,6 @@ class MetronTalkerExt(ComicTalker):
             action=argparse.BooleanOptionalAction,
             display_name="Use series start as volume",
             help="Use the series start year as the volume number",
-        )
-        parser.add_setting(
-            "--met-check-variants",
-            default=False,
-            action=argparse.BooleanOptionalAction,
-            display_name="Check cover variants when auto-tagging",
-            help="Check for cover variants. *This may result in longer search times*",
         )
         # Hide from CLI as it is GUI related
         parser.add_setting(
@@ -155,7 +147,6 @@ class MetronTalkerExt(ComicTalker):
         settings = super().parse_settings(settings)
 
         self.use_series_start_as_volume = settings["met_use_series_start_as_volume"]
-        self.check_variants = settings["met_check_variants"]
         self.display_variants = settings["met_display_variants"]
         self.find_series_covers = settings["met_series_covers"]
         self.use_ongoing_issue_count = settings["met_use_ongoing"]
@@ -307,11 +298,7 @@ class MetronTalkerExt(ComicTalker):
             met_response: IssuesList = self._get_metron_content("issues_list", params)
 
             for issue in met_response:
-                if self.check_variants:
-                    # If check variants, need to load each issue in full for URLs
-                    issues_result.append(self._fetch_issue_data_by_issue_id(issue.id))
-                else:
-                    issues_result.append(self._map_comic_issue_to_metadata(issue, self._fetch_series(int(series_id))))
+                issues_result.append(self._map_comic_issue_to_metadata(issue, self._fetch_series(int(series_id))))
 
         return issues_result
 
