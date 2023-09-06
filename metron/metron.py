@@ -17,12 +17,9 @@ Metron.cloud information source for Comic Tagger
 from __future__ import annotations
 
 import argparse
-import decimal
-import json
 import logging
 import pathlib
 import re
-from datetime import date, datetime
 from typing import Any, Callable
 
 import mokkari
@@ -30,47 +27,11 @@ import settngs
 from comicapi import utils
 from comicapi.genericmetadata import ComicSeries, GenericMetadata, TagOrigin
 from comicapi.issuestring import IssueString
-from comictalker.comiccacher import ComicCacher
-from comictalker.comiccacher import Issue as CCIssue
-from comictalker.comiccacher import Series as CCSeries
 from comictalker.comictalker import ComicTalker, TalkerNetworkError
-from mokkari.issue import Issue, IssueSchema, IssuesList
-from mokkari.series import AssociatedSeries, Series, SeriesList, SeriesSchema
+from mokkari.issue import Issue, IssuesList
+from mokkari.series import AssociatedSeries, Series, SeriesList
 
 logger = logging.getLogger(__name__)
-
-
-class MetronEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (datetime, date)):
-            return obj.isoformat()
-        if isinstance(obj, decimal.Decimal):
-            return str(obj.real)
-
-        # There is a disparity between key names from the API and Mokkari, adjust here when saving cache
-        if isinstance(obj, Issue):
-            new_obj = obj.__dict__
-            if hasattr(obj, "publisher"):
-                # Can presume full Issue and not IssueList
-                new_obj["title"] = obj.collection_title
-                new_obj["name"] = obj.story_titles
-                new_obj["page"] = obj.page_count
-            else:
-                new_obj["issue"] = obj.issue_name
-                del new_obj["issue_name"]
-            return new_obj
-
-        if isinstance(obj, Series):
-            new_obj = obj.__dict__
-            if hasattr(obj, "display_name"):
-                new_obj["series"] = obj.display_name
-            return new_obj
-
-        if isinstance(obj, AssociatedSeries):
-            return {"id": obj.id, "series": obj.name}
-
-        # Everything else return as dict
-        return obj.__dict__
 
 
 class MetronTalkerExt(ComicTalker):
@@ -114,8 +75,9 @@ class MetronTalkerExt(ComicTalker):
             default=False,
             cmdline=False,
             action=argparse.BooleanOptionalAction,
-            display_name="Load series' covers",
-            help="Fetch a cover for series. *This will cause a delay in showing the series window list!*",
+            display_name="Attempt to fetch a cover for each series",
+            help="Fetches a cover for each series in the series selection window. "
+            "*This will cause a delay in showing the series window list!*",
         )
         parser.add_setting(
             "--met-use-ongoing",
@@ -178,36 +140,8 @@ class MetronTalkerExt(ComicTalker):
         search_series_name = utils.sanitize_title(series_name, literal)
         logger.info(f"{self.name} searching: {search_series_name}")
 
-        # Before we search online, look in our cache, since we might have done this same search recently
-        # For literal searches always retrieve from online
-        cvc = ComicCacher(self.cache_folder, self.version)
-        if not refresh_cache and not literal:
-            cached_search_results = cvc.get_search_results(self.id, series_name)
-            if len(cached_search_results) > 0:
-                # The SeriesList is expected to be in "results"
-                json_cache = {"results": [json.loads(x[0].data) for x in cached_search_results]}
-                # "TPB", "HC" and "GN" are added in search title but not in full series call. Add "TPB" back for search
-                for series in json_cache["results"]:
-                    if series.get("series_type"):
-                        if series["series_type"]["id"] == 10:
-                            series["name"] = series["name"] + " TPB"
-
-                return self._format_search_results(SeriesList(json_cache))
-
+        # mokkari is handling caching
         met_response: SeriesList = self._get_metron_content("series_list", {"name": search_series_name})
-
-        # Modify to be serializable with JSON
-        series_for_cache = []
-        for series in met_response.series:
-            series_for_cache.append(json.dumps(series, cls=MetronEncoder).encode("utf-8"))
-        # Cache these search results, even if it's literal we cache the results
-        # The most it will cause is extra processing time
-        cvc.add_search_results(
-            self.id,
-            series_name,
-            [CCSeries(id=str(json.loads(x)["id"]), data=x) for x in series_for_cache],
-            False,
-        )
 
         formatted_search_results = self._format_search_results(met_response.series)
 
@@ -231,41 +165,8 @@ class MetronTalkerExt(ComicTalker):
         return [x[0] for x in self._fetch_issues_in_series(int(series_id))]
 
     def _fetch_issues_in_series(self, series_id: int) -> list[tuple[GenericMetadata, bool]]:
-        # before we search online, look in our cache, since we might already have this info
-        cvc = ComicCacher(self.cache_folder, self.version)
-        cached_series_issues_result = cvc.get_series_issues_info(str(series_id), self.id)
-
-        # Need the issue count to check against the cached issue list
-        series_data: Series = self._fetch_series(series_id)
-
-        # Check cache length against count of issues in case a new issue
-        if len(cached_series_issues_result) == series_data.issue_count:
-            # To trigger loading full issue data for GUI, remove image URL
-            if self.display_variants:
-                cache_data: list[tuple[Issue, bool]] = []
-                for issue in cached_series_issues_result:
-                    cache_data.append((IssueSchema().load(json.loads(issue[0].data)), issue[1]))
-                for issue_data in cache_data:
-                    issue_data[0].image = ""
-                return [(self._map_comic_issue_to_metadata(x[0], series_data), x[1]) for x in cache_data]
-            return [
-                (self._map_comic_issue_to_metadata(IssueSchema().load(json.loads(x[0].data)), series_data), x[1])
-                for x in cached_series_issues_result
-            ]
-
+        # mokkari handles cache
         met_response: IssuesList = self._get_metron_content("issues_list", {"series_id": series_id})
-
-        # Order here matters, want to make sure image URLs are cached but not sent to issue window
-        issues_for_cache = []
-        for issue in met_response:
-            issues_for_cache.append(json.dumps(issue, cls=MetronEncoder).encode("utf-8"))
-        # Cache these search results, even if it's literal we cache the results
-        # The most it will cause is extra processing time
-        cvc.add_issues_info(
-            self.id,
-            [CCIssue(id=str(json.loads(x)["id"]), series_id=series_id, data=x) for x in issues_for_cache],
-            False,
-        )
 
         # To cause a load for full issue in the issue window, need to remove image if supporting variant covers
         # This should only affect the GUI
@@ -309,7 +210,12 @@ class MetronTalkerExt(ComicTalker):
     ) -> list[Series] | list[Issue] | Issue | Series | SeriesList | IssuesList:
         """Use the mokkari python library to retrieve data from Metron.cloud"""
         try:
-            metron_api = mokkari.api(self.username, self.user_password, user_agent="comictagger/" + self.version)
+            metron_api = mokkari.api(
+                self.username,
+                self.user_password,
+                cache=mokkari.sqlite_cache.SqliteCache(str(self.cache_folder / "metron_cache.db"), expire=7),
+                user_agent="comictagger/" + self.version,
+            )
             result = getattr(metron_api, endpoint)(params)
         except mokkari.exceptions.AuthenticationError:
             logger.debug("Access denied. Invalid username or password.")
@@ -394,19 +300,7 @@ class MetronTalkerExt(ComicTalker):
         return self._format_series(self._fetch_series(series_id))
 
     def _fetch_series(self, series_id: int) -> Series:
-        cvc = ComicCacher(self.cache_folder, self.version)
-        cached_series_result = cvc.get_series_info(str(series_id), self.id)
-
-        if cached_series_result is not None and cached_series_result[1]:
-            # Check if series cover attempt was made if option is set
-            cache_data: Series = SeriesSchema().load(json.loads(cached_series_result[0].data))
-            if self.find_series_covers:
-                for assoc in cache_data.associated:
-                    if assoc.id == -999:
-                        return cache_data
-            if not self.find_series_covers:
-                return cache_data
-
+        # mokkari handles cache
         met_response: Series = self._get_metron_content("series", series_id)
 
         # False by default, causes delay in showing series window due to fetching issue list for series
@@ -414,13 +308,6 @@ class MetronTalkerExt(ComicTalker):
             series_image = self._fetch_series_cover(series_id, met_response.issue_count)
             # Insert a series image (even if it's empty). Will misuse the associated series field
             met_response.associated.append(AssociatedSeries(id=-999, name=series_image))
-
-        if met_response:
-            cvc.add_series_info(
-                self.id,
-                CCSeries(id=str(met_response.id), data=json.dumps(met_response, cls=MetronEncoder).encode("utf-8")),
-                True,
-            )
 
         return met_response
 
@@ -436,70 +323,26 @@ class MetronTalkerExt(ComicTalker):
         return GenericMetadata()
 
     def _fetch_issue_data_by_issue_id(self, issue_id: str) -> GenericMetadata:
-        cvc = ComicCacher(self.cache_folder, self.version)
-        cached_issues_result = cvc.get_issue_info(int(issue_id), self.id)
-
-        if cached_issues_result and cached_issues_result[1]:
-            return self._map_comic_issue_to_metadata(
-                (IssueSchema().load(json.loads(cached_issues_result[0].data))),
-                self._fetch_series(int(cached_issues_result[0].series_id)),
-            )
-
         met_response: Issue = self._get_metron_content("issue", int(issue_id))
 
         # Get full series info
         series_data: Series = self._fetch_series(met_response.series.id)
-
-        cvc.add_issues_info(
-            self.id,
-            [
-                CCIssue(
-                    id=str(met_response.id),
-                    series_id=str(series_data.id),
-                    data=json.dumps(met_response, cls=MetronEncoder).encode("utf-8"),
-                )
-            ],
-            True,
-        )
 
         # Now, map the GenericMetadata data to generic metadata
         return self._map_comic_issue_to_metadata(met_response, series_data)
 
     def _fetch_series_cover(self, series_id: int, issue_count: int) -> str:
         # Metron/Mokkari does not return an image for the series therefore fetch the first issue cover
-        def find_image(issue_list: IssuesList | list):
-            img = ""
-            # Not every series starts with issue 1 but search for one first
-            for issue in issue_list:
-                if issue.number == "1" and issue.image:
-                    img = issue.image
-                    break
 
-            # If there is still no cover image take the first record
-            if len(issue_list) > 0:
-                img = issue_list[0].image
-            return img
+        met_response: IssuesList = self._get_metron_content("issues_list", {"series_id": series_id})
 
-        cvc = ComicCacher(self.cache_folder, self.version)
-        cached_series_issues_result = cvc.get_series_issues_info(str(series_id), self.id)
+        # Inject a series cover image
+        img = ""
+        # Take the first record, it should be issue 1 if the series starts at issue 1
+        if len(met_response) > 0:
+            img = met_response[0].image
 
-        # Check cache length against count of issues in case a new issue
-        if len(cached_series_issues_result) == issue_count:
-            issue_list = [IssueSchema().load(json.loads(x[0].data)) for x in cached_series_issues_result]
-            return find_image(issue_list)
-        else:
-            met_response: IssuesList = self._get_metron_content("issues_list", {"series_id": series_id})
-
-            issues_for_cache = []
-            for issue in met_response:
-                issues_for_cache.append(json.dumps(issue, cls=MetronEncoder).encode("utf-8"))
-            cvc.add_issues_info(
-                self.id,
-                [CCIssue(id=str(json.loads(x)["id"]), series_id=series_id, data=x) for x in issues_for_cache],
-                False,
-            )
-
-            return find_image(met_response)
+        return img
 
     def _map_comic_issue_to_metadata(self, issue: Issue, series: Series) -> GenericMetadata:
         # Cover both IssueList (with less data) and Issue
