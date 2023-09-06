@@ -128,13 +128,13 @@ class MetronTalkerExt(ComicTalker):
             "--met-username",
             default="",
             display_name="Username",
-            help="Username for Metron website. (NOTE: Test API requires username to be saved.)",
+            help="Username for Metron website",
         )
         parser.add_setting(
             f"--{self.id}-key",
             default="",
             display_name="API Password",
-            help=f"Use the given Metron API password. (default: {self.default_api_key})",
+            help="Use the given Metron API password",
         )
         parser.add_setting(
             f"--{self.id}-url",
@@ -155,9 +155,11 @@ class MetronTalkerExt(ComicTalker):
 
         return settings
 
-    def check_api_key(self, url: str, key: str) -> tuple[str, bool]:
+    def check_status(self, settings: dict[str, Any]) -> tuple[str, bool]:
         try:
-            metron_api = mokkari.api(self.username, key, user_agent="comictagger/" + self.version)
+            metron_api = mokkari.api(
+                settings["met_username"], settings["metron_key"], user_agent="comictagger/" + self.version
+            )
             metron_api.series(1)
             return "The API access test was successful", True
         except mokkari.exceptions.AuthenticationError:
