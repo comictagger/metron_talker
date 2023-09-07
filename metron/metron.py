@@ -20,6 +20,7 @@ import argparse
 import logging
 import pathlib
 import re
+from enum import Enum
 from typing import Any, Callable
 
 import mokkari
@@ -32,6 +33,16 @@ from mokkari.issue import Issue, IssuesList
 from mokkari.series import AssociatedSeries, Series, SeriesList
 
 logger = logging.getLogger(__name__)
+
+
+class MetronSeriesType(Enum):
+    ongoing = 1
+    one_shot = 5
+    annual_series = 6
+    hard_cover = 8
+    graphic_novel = 9
+    trade_paperback = 10
+    limited_series = 11
 
 
 class MetronTalkerExt(ComicTalker):
@@ -358,32 +369,25 @@ class MetronTalkerExt(ComicTalker):
         else:
             md.cover_image = issue.image
 
+        series_type = -1
+        if hasattr(series, "series_type"):
+            series_type = series.series_type.id
+
         # Check if series is ongoing to legitimise issue count OR use option setting
         if hasattr(series, "issue_count"):
-            if hasattr(series, "series_type"):
-                # 1 = Ongoing, 2 = cancelled, 5 = One-shot, 6 = Annual Series, 8 = Hard Cover, 9 = Graphic Novel
-                # 10 = Trade Paperback, 11 = Limited series
-                if series.series_type.id != 1:
-                    md.issue_count = utils.xlate_int(series.issue_count)
-            # This is better than going down an if rabbit hole?
-            if self.use_ongoing_issue_count:
+            if series_type != MetronSeriesType.ongoing.value or self.use_ongoing_issue_count:
                 md.issue_count = utils.xlate_int(series.issue_count)
 
-        if hasattr(series, "series_type"):
-            # 5 = One-shot, 6 = Annual Series, 8 = Hard Cover, 9 = Graphic Novel, 10 = Trade Paperback,
-            # 11 = Limited Series
-            if series.series_type.id == 5:
-                md.format = series.series_type.name
-            if series.series_type.id == 6:
-                md.format = series.series_type.name
-            if series.series_type.id == 8:
-                md.format = series.series_type.name
-            if series.series_type.id == 9:
-                md.format = series.series_type.name
-            if series.series_type.id == 10:
-                md.format = "TPB"
-            if series.series_type.id == 11:
-                md.format = series.series_type.name
+        if series_type in (
+            MetronSeriesType.annual_series.value,
+            MetronSeriesType.graphic_novel.value,
+            MetronSeriesType.hard_cover.value,
+            MetronSeriesType.limited_series.value,
+            MetronSeriesType.one_shot.value,
+        ):
+            md.format = series.series_type.name
+        if series_type == MetronSeriesType.trade_paperback.value:
+            md.format = "TPB"
 
         if hasattr(issue, "desc"):
             md.description = issue.desc
