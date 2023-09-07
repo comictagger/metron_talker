@@ -161,12 +161,10 @@ class MetronTalkerExt(ComicTalker):
 
         return comic_data
 
-    def fetch_issues_in_series(self, series_id: str) -> list[GenericMetadata]:
-        return [x[0] for x in self._fetch_issues_in_series(int(series_id))]
-
-    def _fetch_issues_in_series(self, series_id: int) -> list[tuple[GenericMetadata, bool]]:
+    def fetch_issues_in_series(self, series_id: int) -> list[GenericMetadata]:
         # mokkari handles cache
         met_response: IssuesList = self._get_metron_content("issues_list", {"series_id": series_id})
+        series = self._fetch_series(int(series_id))
 
         # To cause a load for full issue in the issue window, need to remove image if supporting variant covers
         # This should only affect the GUI
@@ -175,11 +173,9 @@ class MetronTalkerExt(ComicTalker):
                 issue.image = ""
 
         # Format to expected output
-        formatted_series_issues_result = [
-            self._map_comic_issue_to_metadata(x, self._fetch_series(series_id)) for x in met_response
-        ]
+        formatted_series_issues_result = [self._map_comic_issue_to_metadata(x, series) for x in met_response]
 
-        return [(x, False) for x in formatted_series_issues_result]
+        return formatted_series_issues_result
 
     def fetch_issues_by_series_issue_num_and_year(
         self, series_id_list: list[str], issue_number: str, year: str | int | None
@@ -199,9 +195,10 @@ class MetronTalkerExt(ComicTalker):
                 params["cover_year"] = year  # type: ignore
 
             met_response: IssuesList = self._get_metron_content("issues_list", params)
+            series = self._fetch_series(int(series_id))
 
             for issue in met_response:
-                issues_result.append(self._map_comic_issue_to_metadata(issue, self._fetch_series(int(series_id))))
+                issues_result.append(self._map_comic_issue_to_metadata(issue, series))
 
         return issues_result
 
