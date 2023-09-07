@@ -398,9 +398,7 @@ class MetronTalkerExt(ComicTalker):
                 genres.append(genre.name)
             md.genres = genres
 
-        #  issue_name is only for IssueList, it's just the series name is issue number
-        if hasattr(issue, "issue_name"):
-            md.title = utils.xlate(issue.issue_name)
+        #  issue_name is only for IssueList, it's just the series name is issue number, we'll ignore it
 
         # If there is a collection_title (for TPB) there should be no story_titles?
         if hasattr(issue, "collection_title"):
