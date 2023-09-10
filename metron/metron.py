@@ -103,6 +103,8 @@ class MetronTalkerExt(ComicTalker):
         self.use_ongoing_issue_count: bool = False
         self.find_series_covers: bool = False
 
+        self.mokkari_api = None
+
     def register_settings(self, parser: settngs.Manager) -> None:
         parser.add_setting(
             "--met-use-series-start-as-volume",
@@ -164,6 +166,12 @@ class MetronTalkerExt(ComicTalker):
         self.use_ongoing_issue_count = settings["met_use_ongoing"]
         self.username = settings["met_username"]
         self.user_password = settings["metron_key"]
+
+        # If the username and password is invalid, the talker will not initialise
+        try:
+            self.mokkari_api = mokkari.api(self.username, self.user_password, user_agent="comictagger/" + self.version)
+        except Exception:
+            pass
 
         return settings
 
@@ -307,8 +315,9 @@ class MetronTalkerExt(ComicTalker):
     ) -> list[Series] | list[Issue] | Issue | Series | SeriesList | IssuesList:
         """Use the mokkari python library to retrieve data from Metron.cloud"""
         try:
-            metron_api = mokkari.api(self.username, self.user_password, user_agent="comictagger/" + self.version)
-            result = getattr(metron_api, endpoint)(params)
+            if self.mokkari_api is None:
+                raise TalkerNetworkError(self.name, 2, "Please enter a username and password in the settings window")
+            result = getattr(self.mokkari_api, endpoint)(params)
         except mokkari.exceptions.AuthenticationError:
             logger.debug("Access denied. Invalid username or password.")
             raise TalkerNetworkError(self.name, 1, "Access denied. Invalid username or password.")
