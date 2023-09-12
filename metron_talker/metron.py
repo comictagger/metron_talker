@@ -84,7 +84,7 @@ class MetronEncoder(json.JSONEncoder):
         return obj.__dict__
 
 
-class MetronTalkerExt(ComicTalker):
+class MetronTalker(ComicTalker):
     name: str = "Metron"
     id: str = "metron"
     website: str = "https://metron.cloud"
