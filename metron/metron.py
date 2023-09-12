@@ -316,7 +316,7 @@ class MetronTalkerExt(ComicTalker):
         """Use the mokkari python library to retrieve data from Metron.cloud"""
         try:
             if self.mokkari_api is None:
-                raise TalkerNetworkError(self.name, 2, "Please enter a username and password in the settings window")
+                raise TalkerNetworkError(self.name, 2, "Invalid username or password")
             result = getattr(self.mokkari_api, endpoint)(params)
         except mokkari.exceptions.AuthenticationError:
             logger.debug("Access denied. Invalid username or password.")
