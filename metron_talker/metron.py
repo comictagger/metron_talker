@@ -52,7 +52,7 @@ class MetronSeriesType(Enum):
 
 
 class MetronEncoder(json.JSONEncoder):
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:
         if isinstance(obj, (datetime, date)):
             return obj.isoformat()
         if isinstance(obj, decimal.Decimal):
