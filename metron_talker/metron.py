@@ -38,7 +38,7 @@ from comictalker.comictalker import ComicTalker, TalkerNetworkError
 from mokkari.issue import Issue, IssueSchema, IssuesList
 from mokkari.series import AssociatedSeries, Series, SeriesList, SeriesSchema
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"comictalker.{__name__}")
 
 
 class MetronSeriesType(Enum):
@@ -113,23 +113,13 @@ class MetronTalker(ComicTalker):
             display_name="Use series start as volume",
             help="Use the series start year as the volume number",
         )
-        # Hide from CLI as it is GUI related
-        parser.add_setting(
-            "--met-display-variants",
-            default=False,
-            cmdline=False,
-            action=argparse.BooleanOptionalAction,
-            display_name="Display variant covers in the issue list",
-            help="Make variant covers available in the issue list window.  *May result in longer load times*",
-        )
         parser.add_setting(
             "--met-series-covers",
             default=False,
             cmdline=False,
             action=argparse.BooleanOptionalAction,
             display_name="Attempt to fetch a cover for each series",
-            help="Fetches a cover for each series in the series selection window. "
-            "*This will cause a delay in showing the series window list!*",
+            help="Fetches a cover for each series in the series selection window",
         )
         parser.add_setting(
             "--met-use-ongoing",
@@ -161,7 +151,6 @@ class MetronTalker(ComicTalker):
         settings = super().parse_settings(settings)
 
         self.use_series_start_as_volume = settings["met_use_series_start_as_volume"]
-        self.display_variants = settings["met_display_variants"]
         self.find_series_covers = settings["met_series_covers"]
         self.use_ongoing_issue_count = settings["met_use_ongoing"]
         self.username = settings["met_username"]
@@ -195,8 +184,7 @@ class MetronTalker(ComicTalker):
         literal: bool = False,
         series_match_thresh: int = 90,
     ) -> list[ComicSeries]:
-        search_series_name = utils.sanitize_title(series_name, literal)
-        logger.info(f"{self.name} searching: {search_series_name}")
+        logger.info(f"{self.name} searching: {series_name}")
 
         # Before we search online, look in our cache, since we might have done this same search recently
         # For literal searches always retrieve from online
@@ -208,7 +196,7 @@ class MetronTalker(ComicTalker):
                 json_cache = {"results": [json.loads(x[0].data) for x in cached_search_results]}
                 return self._format_search_results(SeriesList(json_cache))
 
-        met_response: SeriesList = self._get_metron_content("series_list", {"name": search_series_name})
+        met_response: SeriesList = self._get_metron_content("series_list", {"name": series_name})
 
         # Cache these search results, even if it's literal we cache the results
         # The most it will cause is extra processing time
@@ -536,7 +524,7 @@ class MetronTalker(ComicTalker):
             if len(issue.story_titles) > 0:
                 md.title = "; ".join(issue.story_titles)
 
-        if hasattr(issue, "rating"):
+        if hasattr(issue, "rating") and issue.rating.name != "Unknown":
             md.maturity_rating = issue.rating.name
 
         md.web_link = getattr(issue, "resource_url", None)
