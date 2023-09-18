@@ -90,6 +90,11 @@ class MetronTalker(ComicTalker):
     website: str = "https://metron.cloud"
     logo_url: str = "https://static.metron.cloud/static/site/img/metron.svg"
     attribution: str = f"Metadata provided by <a href='{website}'>{name}</a>"
+    about: str = (
+        f"<a href='{website}'>{name}</a> is a community-based site whose goal is to build an open database "
+        f"with a REST API for comic books. <p>NOTE: An account on <a href='{website}'>{name}</a> is "
+        f"required to use its API."
+    )
 
     def __init__(self, version: str, cache_folder: pathlib.Path):
         super().__init__(version, cache_folder)
