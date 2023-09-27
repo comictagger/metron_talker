@@ -353,7 +353,6 @@ class MetronTalker(ComicTalker):
                     name=series_name,
                     publisher=pub,
                     start_year=record.year_began,
-                    genres=[],
                     format=None,
                 )
             )
@@ -361,10 +360,6 @@ class MetronTalker(ComicTalker):
         return formatted_results
 
     def _format_series(self, search_result: Series) -> ComicSeries:
-        genres = []
-        for genre in search_result.genres:
-            genres.append(genre.name)
-
         # Option to use sort name?
         # Put sort name in aliases for now
 
@@ -378,7 +373,6 @@ class MetronTalker(ComicTalker):
             aliases=[search_result.sort_name],
             count_of_issues=search_result.issue_count,
             count_of_volumes=None,
-            genres=genres,
             description=search_result.desc,
             id=str(search_result.id),
             image_url=img,
