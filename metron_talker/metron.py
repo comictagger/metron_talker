@@ -344,7 +344,7 @@ class MetronTalker(ComicTalker):
 
             formatted_results.append(
                 ComicSeries(
-                    aliases=[],
+                    aliases=set(),
                     count_of_issues=record.issue_count,
                     count_of_volumes=None,
                     description="",
@@ -370,7 +370,7 @@ class MetronTalker(ComicTalker):
                 img = assoc.name
 
         formatted_result = ComicSeries(
-            aliases=[search_result.sort_name],
+            aliases=set(search_result.sort_name),
             count_of_issues=search_result.issue_count,
             count_of_volumes=None,
             description=search_result.desc,
@@ -478,7 +478,6 @@ class MetronTalker(ComicTalker):
             tag_origin=TagOrigin(self.id, self.name),
             issue_id=utils.xlate(issue.id),
             series_id=utils.xlate(series.id),
-            title_aliases=[],
             publisher=utils.xlate(series.publisher.name),
             issue=utils.xlate(IssueString(issue.number).as_string()),
             series=utils.xlate(series.name),
@@ -512,7 +511,7 @@ class MetronTalker(ComicTalker):
             genres = []
             for genre in series.genres:
                 genres.append(genre.name)
-            md.genres = genres
+            md.genres = set(genres)
 
         #  issue_name is only for IssueList, it's just the series name is issue number, we'll ignore it
 
@@ -528,22 +527,18 @@ class MetronTalker(ComicTalker):
 
         md.web_link = getattr(issue, "resource_url", None)
 
-        md.alternate_images = []
         if hasattr(issue, "variants"):
             for alt in issue.variants:
                 md.alternate_images.append(alt.image)
 
-        md.characters = []
         if hasattr(issue, "characters"):
             for character in issue.characters:
-                md.characters.append(character.name)
+                md.characters.add(character.name)
 
-        md.teams = []
         if hasattr(issue, "teams"):
             for team in issue.teams:
-                md.teams.append(team.name)
+                md.teams.add(team.name)
 
-        md.story_arcs = []
         if hasattr(issue, "arcs"):
             for arc in issue.arcs:
                 md.story_arcs.append(arc.name)
