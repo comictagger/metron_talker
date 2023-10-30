@@ -1,6 +1,6 @@
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v4.5.0
     hooks:
     -   id: trailing-whitespace
     -   id: end-of-file-fixer
@@ -9,7 +9,7 @@ repos:
     -   id: name-tests-test
     -   id: requirements-txt-fixer
 -   repo: https://github.com/asottile/setup-cfg-fmt
-    rev: v2.4.0
+    rev: v2.5.0
     hooks:
     -   id: setup-cfg-fmt
 -   repo: https://github.com/PyCQA/autoflake
@@ -18,7 +18,7 @@ repos:
     -   id: autoflake
         args: [-i, --remove-all-unused-imports, --ignore-init-module-imports]
 -   repo: https://github.com/asottile/pyupgrade
-    rev: v3.13.0
+    rev: v3.15.0
     hooks:
     -   id: pyupgrade
         args: [--py39-plus]
@@ -28,7 +28,7 @@ repos:
     -   id: isort
         args: [--af,--add-import, 'from __future__ import annotations']
 -   repo: https://github.com/psf/black
-    rev: 23.9.1
+    rev: 23.10.1
     hooks:
     -   id: black
 -   repo: https://github.com/PyCQA/flake8
@@ -38,7 +38,7 @@ repos:
         args: [--max-line-length=120, '--ignore=E203, E501, A003']
         additional_dependencies: [toml, flake8-encodings, flake8-warnings, flake8-builtins, flake8-length, flake8-print]
 -   repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.5.1
+    rev: v1.6.1
     hooks:
     -   id: mypy
         additional_dependencies: [types-setuptools, types-requests]
