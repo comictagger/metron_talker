@@ -87,6 +87,7 @@ class MetronEncoder(json.JSONEncoder):
 class MetronTalker(ComicTalker):
     name: str = "Metron"
     id: str = "metron"
+    comictagger_min_ver: str = "1.6.0a7"
     website: str = "https://metron.cloud"
     logo_url: str = "https://static.metron.cloud/static/site/img/metron.svg"
     attribution: str = f"Metadata provided by <a href='{website}'>{name}</a>"
