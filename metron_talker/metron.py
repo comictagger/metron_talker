@@ -483,7 +483,7 @@ class MetronTalker(ComicTalker):
             series=utils.xlate(series.name),
         )
 
-        md.cover_image = issue.image
+        md._cover_image = issue.image
 
         series_type = -1
         if hasattr(series, "series_type"):
@@ -529,7 +529,7 @@ class MetronTalker(ComicTalker):
 
         if hasattr(issue, "variants"):
             for alt in issue.variants:
-                md.alternate_images.append(alt.image)
+                md._alternate_images.append(alt.image)
 
         if hasattr(issue, "characters"):
             for character in issue.characters:
