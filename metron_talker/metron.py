@@ -1,6 +1,7 @@
 """
 Metron.cloud information source for Comic Tagger
 """
+
 # Copyright comictagger team
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
