@@ -28,11 +28,11 @@ repos:
     -   id: isort
         args: [--af,--add-import, 'from __future__ import annotations']
 -   repo: https://github.com/psf/black
-    rev: 23.12.1
+    rev: 24.1.1
     hooks:
     -   id: black
 -   repo: https://github.com/PyCQA/flake8
-    rev: 6.1.0
+    rev: 7.0.0
     hooks:
     -   id: flake8
         args: [--max-line-length=120, '--ignore=E203, E501, A003']
