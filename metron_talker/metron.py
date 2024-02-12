@@ -95,7 +95,7 @@ class MetronTalker(ComicTalker):
     about: str = (
         f"<a href='{website}'>{name}</a> is a community-based site whose goal is to build an open database "
         f"with a REST API for comic books. <p>NOTE: An account on <a href='{website}'>{name}</a> is "
-        f"required to use its API.</p><p>NOTE: Automatic image comparisions are not available due to the"
+        f"required to use its API.</p><p>NOTE: Automatic image comparisons are not available due to the"
         f"extra bandwidth require. Donations will be accepted soon, check the website.</p>"
     )
 
