@@ -95,7 +95,8 @@ class MetronTalker(ComicTalker):
     about: str = (
         f"<a href='{website}'>{name}</a> is a community-based site whose goal is to build an open database "
         f"with a REST API for comic books. <p>NOTE: An account on <a href='{website}'>{name}</a> is "
-        f"required to use its API."
+        f"required to use its API.</p><p>NOTE: Automatic image comparisions are not available due to the"
+        f"extra bandwidth require. Donations will be accepted soon, check the website.</p>"
     )
 
     def __init__(self, version: str, cache_folder: pathlib.Path):
@@ -301,6 +302,8 @@ class MetronTalker(ComicTalker):
             series = self._fetch_series(int(series_id))
 
             for issue in met_response:
+                # Remove image URL to comply with Metron's request due to high bandwidth usage
+                issue.image = ""
                 issues_result.append(self._map_comic_issue_to_metadata(issue, series))
 
         return issues_result
