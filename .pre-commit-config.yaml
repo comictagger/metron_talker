@@ -18,7 +18,7 @@ repos:
     -   id: autoflake
         args: [-i, --remove-all-unused-imports, --ignore-init-module-imports]
 -   repo: https://github.com/asottile/pyupgrade
-    rev: v3.15.1
+    rev: v3.15.2
     hooks:
     -   id: pyupgrade
         args: [--py39-plus]
