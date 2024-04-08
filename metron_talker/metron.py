@@ -23,6 +23,7 @@ import json
 import logging
 import pathlib
 import re
+import unicodedata
 from datetime import date, datetime
 from enum import Enum
 from typing import Any, Callable
@@ -192,25 +193,32 @@ class MetronTalker(ComicTalker):
         literal: bool = False,
         series_match_thresh: int = 90,
     ) -> list[ComicSeries]:
-        logger.info(f"{self.name} searching: {series_name}")
+        # Sanitize the series name
+        search_series_name = self._sanitize_title(series_name, literal)
+
+        # A literal search was asked for, do not sanitize
+        if literal:
+            search_series_name = series_name
+
+        logger.info(f"{self.name} searching: {search_series_name}")
 
         # Before we search online, look in our cache, since we might have done this same search recently
         # For literal searches always retrieve from online
         cvc = ComicCacher(self.cache_folder, self.version)
         if not refresh_cache and not literal:
-            cached_search_results = cvc.get_search_results(self.id, series_name)
+            cached_search_results = cvc.get_search_results(self.id, search_series_name)
             if len(cached_search_results) > 0:
                 # The SeriesList is expected to be in "results"
                 json_cache = {"results": [json.loads(x[0].data) for x in cached_search_results]}
                 return self._format_search_results(SeriesList(json_cache))
 
-        met_response: SeriesList = self._get_metron_content("series_list", {"name": series_name})
+        met_response: SeriesList = self._get_metron_content("series_list", {"name": search_series_name})
 
         # Cache these search results, even if it's literal we cache the results
         # The most it will cause is extra processing time
         cvc.add_search_results(
             self.id,
-            series_name,
+            search_series_name,
             [CCSeries(id=str(x.id), data=json.dumps(x, cls=MetronEncoder)) for x in met_response],
             False,
         )
@@ -324,6 +332,25 @@ class MetronTalker(ComicTalker):
             raise TalkerNetworkError(self.name, 1, f"API error: {e}")
 
         return result
+
+    def _sanitize_title(self, text: str, basic: bool = False) -> str:
+        # normalize unicode and convert to ascii. Does not work for everything eg ½ to 1⁄2 not 1/2
+        text = unicodedata.normalize("NFKD", text).casefold()
+        # No apostophy removal here as "world's" will not be found as "worlds" but "world s" will
+        text = text.replace('"', "")
+        if not basic:
+            # remove all characters that are not a letter, separator (space) or number
+            # replace any "dash punctuation" with a space
+            # makes sure that batman-superman and self-proclaimed stay separate words
+            text = "".join(
+                c if unicodedata.category(c)[0] not in "P" else " "
+                for c in text
+                if unicodedata.category(c)[0] in "LZNP"
+            )
+            # remove extra space and articles and all lower case
+            text = utils.remove_articles(text).strip()
+
+        return text
 
     def _format_search_results(self, search_results: SeriesList) -> list[ComicSeries]:
         formatted_results = []
