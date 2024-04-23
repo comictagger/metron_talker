@@ -39,6 +39,8 @@ from comictalker.comiccacher import Series as CCSeries
 from comictalker.comictalker import ComicTalker, TalkerNetworkError
 from mokkari.issue import Issue, IssueSchema, IssuesList
 from mokkari.series import AssociatedSeries, Series, SeriesList, SeriesSchema
+from urllib3.exceptions import LocationParseError
+from urllib3.util import parse_url
 
 logger = logging.getLogger(f"comictalker.{__name__}")
 
@@ -89,7 +91,7 @@ class MetronEncoder(json.JSONEncoder):
 class MetronTalker(ComicTalker):
     name: str = "Metron"
     id: str = "metron"
-    comictagger_min_ver: str = "1.6.0a7"
+    comictagger_min_ver: str = "1.6.0a13"
     website: str = "https://metron.cloud"
     logo_url: str = "https://static.metron.cloud/static/site/img/metron.svg"
     attribution: str = f"Metadata provided by <a href='{website}'>{name}</a>"
@@ -557,7 +559,12 @@ class MetronTalker(ComicTalker):
         if hasattr(issue, "rating") and issue.rating.name != "Unknown":
             md.maturity_rating = issue.rating.name
 
-        md.web_link = getattr(issue, "resource_url", None)
+        url = getattr(issue, "resource_url", None)
+        if url:
+            try:
+                md.web_links = [parse_url(url)]
+            except LocationParseError:
+                ...
 
         if hasattr(issue, "variants"):
             for alt in issue.variants:
