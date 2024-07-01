@@ -38,7 +38,7 @@ repos:
         args: [--max-line-length=120, '--ignore=E203, E501, A003']
         additional_dependencies: [toml, flake8-encodings, flake8-warnings, flake8-builtins, flake8-length, flake8-print]
 -   repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
+    rev: v1.10.1
     hooks:
     -   id: mypy
         additional_dependencies: [types-setuptools, types-requests]
