@@ -28,17 +28,17 @@ repos:
     -   id: isort
         args: [--af,--add-import, 'from __future__ import annotations']
 -   repo: https://github.com/psf/black
-    rev: 24.4.2
+    rev: 24.8.0
     hooks:
     -   id: black
 -   repo: https://github.com/PyCQA/flake8
-    rev: 7.1.0
+    rev: 7.1.1
     hooks:
     -   id: flake8
         args: [--max-line-length=120, '--ignore=E203, E501, A003']
         additional_dependencies: [toml, flake8-encodings, flake8-warnings, flake8-builtins, flake8-length, flake8-print]
 -   repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.0
+    rev: v1.11.1
     hooks:
     -   id: mypy
         additional_dependencies: [types-setuptools, types-requests]
