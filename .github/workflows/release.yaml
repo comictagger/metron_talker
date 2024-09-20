@@ -29,10 +29,12 @@ jobs:
         run: |
           python -m pip install --upgrade --upgrade-strategy eager -r requirements-dev.txt
 
-      - name: Build and install wheel
+      - name: Build and make zip plugin
         run: |
           tox run -m build
-          python -m pip install dist/*.whl
+          python -m pip install dist/*.whl -t build
+          cd build
+          zip -x "*/__pycache__/*" -r ../dist/${{ github.event.repository.name }}-plugin-${{ github.ref_name }}.zip *
 
       - name: "Publish distribution 📦 to PyPI"
         if: startsWith(github.ref, 'refs/tags/')
@@ -52,4 +54,4 @@ jobs:
           name: "${{ env.release_name }}"
           draft: false
           files: |
-            dist/*.whl
+            dist/*.zip
