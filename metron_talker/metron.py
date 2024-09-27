@@ -153,9 +153,8 @@ class MetronTalker(ComicTalker):
         )
         parser.add_setting(
             f"--{self.id}-url",
-            default="",
-            display_name="API URL",
-            help=f"Use the given Metron URL. (default: {self.default_api_url})",
+            cmdline=False,
+            file=False,
         )
 
     def parse_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
