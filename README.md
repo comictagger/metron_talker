@@ -6,7 +6,7 @@ A plugin for [Comic Tagger](https://github.com/comictagger/comictagger/releases)
 
 ## Installation
 
-The easiest installation method as of ComicTagger 1.6.0-beta.1 for the plugin is to place the [release](https://github.com/mizaki/mangadex_talker/releases) zip file
+The easiest installation method as of ComicTagger 1.6.0-beta.1 for the plugin is to place the [release](https://github.com/comictagger/metron_talker/releases) zip file
 `mangadex_talker-plugin-<version>.zip` into the [plugins](https://github.com/comictagger/comictagger/wiki/Installing-plugins) directory.
 
 ## Development Installation
