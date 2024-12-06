@@ -583,7 +583,9 @@ class MetronTalker(ComicTalker):
 
         if hasattr(issue, "credits"):
             for person in issue.credits:
-                md.add_credit(person.creator, person.role[0].name.title().strip(), False)
+                person_name = getattr(person, "creator", "")
+                role = person.role[0].name if person.role and person.role[0] else ""
+                md.add_credit(person_name, role, False)
 
         md.volume = utils.xlate_int(issue.series.volume)
         if self.use_series_start_as_volume:
