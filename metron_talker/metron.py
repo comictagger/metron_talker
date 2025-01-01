@@ -36,7 +36,7 @@ from comicapi.issuestring import IssueString
 from comictalker.comiccacher import ComicCacher
 from comictalker.comiccacher import Issue as CCIssue
 from comictalker.comiccacher import Series as CCSeries
-from comictalker.comictalker import ComicTalker, TalkerNetworkError
+from comictalker.comictalker import ComicTalker, RLCallBack, TalkerNetworkError
 from mokkari.issue import Issue, IssueSchema, IssuesList
 from mokkari.series import AssociatedSeries, Series, SeriesList, SeriesSchema
 from urllib3.exceptions import LocationParseError
@@ -193,6 +193,7 @@ class MetronTalker(ComicTalker):
         refresh_cache: bool = False,
         literal: bool = False,
         series_match_thresh: int = 90,
+        on_rate_limit: RLCallBack | None = None,
     ) -> list[ComicSeries]:
         # Sanitize the series name
         search_series_name = self._sanitize_title(series_name, literal)
@@ -233,6 +234,7 @@ class MetronTalker(ComicTalker):
         issue_id: str | None = None,
         series_id: str | None = None,
         issue_number: str = "",
+        on_rate_limit: RLCallBack | None = None,
     ) -> GenericMetadata:
         comic_data = GenericMetadata()
         if issue_id:
@@ -242,7 +244,11 @@ class MetronTalker(ComicTalker):
 
         return comic_data
 
-    def fetch_issues_in_series(self, series_id: str) -> list[GenericMetadata]:
+    def fetch_issues_in_series(
+        self,
+        series_id: str,
+        on_rate_limit: RLCallBack | None = None,
+    ) -> list[GenericMetadata]:
         # before we search online, look in our cache, since we might already have this info
         cvc = ComicCacher(self.cache_folder, self.version)
         cached_series_issues_result = cvc.get_series_issues_info(str(series_id), self.id)
@@ -290,7 +296,11 @@ class MetronTalker(ComicTalker):
         return formatted_series_issues_result
 
     def fetch_issues_by_series_issue_num_and_year(
-        self, series_id_list: list[str], issue_number: str, year: str | int | None
+        self,
+        series_id_list: list[str],
+        issue_number: str,
+        year: str | int | None,
+        on_rate_limit: RLCallBack | None = None,
     ) -> list[GenericMetadata]:
         # At the request of Metron, we will not retrieve the variant covers for matching
         issues_result = []
@@ -417,7 +427,7 @@ class MetronTalker(ComicTalker):
 
         return formatted_result
 
-    def fetch_series(self, series_id: int) -> ComicSeries:
+    def fetch_series(self, series_id: int, on_rate_limit: RLCallBack | None = None) -> ComicSeries:
         return self._format_series(self._fetch_series(series_id))
 
     def _fetch_series(self, series_id: int) -> Series:
