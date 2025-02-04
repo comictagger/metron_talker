@@ -636,18 +636,18 @@ class MetronTalker(ComicTalker):
             self.id,
             [
                 CCIssue(id=str(x["id"]), series_id=series_id, data=json.dumps(x).encode("utf-8"))
-                for x in met_response["results"]
+                for x in series_issues_result
             ],
             False,
         )
 
         # Same variant covers mechanism as above. This should only affect the GUI
         if self.display_variants:
-            for issue in met_response["results"]:
+            for issue in series_issues_result:
                 issue.image = ""
 
         # Format to expected output
-        formatted_series_issues_result = [self._map_comic_issue_to_metadata(x) for x in met_response["results"]]
+        formatted_series_issues_result = [self._map_comic_issue_to_metadata(x) for x in series_issues_result]
 
         return formatted_series_issues_result
 
