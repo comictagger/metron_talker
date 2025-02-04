@@ -38,8 +38,8 @@ from comictalker import talker_utils
 from comictalker.comiccacher import ComicCacher
 from comictalker.comiccacher import Issue as CCIssue
 from comictalker.comiccacher import Series as CCSeries
-from comictalker.comictalker import ComicTalker, RLCallBack, TalkerDataError, TalkerNetworkError
-from comictalker.vendor.pyrate_limiter import Duration, Limiter, RequestRate
+from comictalker.comictalker import ComicTalker, TalkerDataError, TalkerNetworkError
+from pyrate_limiter import Duration, Limiter, RequestRate
 from typing_extensions import TypedDict  # Workaround bug in 3.9 and 3.10
 
 try:
@@ -460,7 +460,6 @@ class MetronTalker(ComicTalker):
         refresh_cache: bool = False,
         literal: bool = False,
         series_match_thresh: int = 90,
-        on_rate_limit: RLCallBack | None = None,
     ) -> list[ComicSeries]:
         # Sanitize the series name specially for Metron
         search_series_name = self._sanitize_title(series_name, literal)
@@ -489,7 +488,7 @@ class MetronTalker(ComicTalker):
 
         met_response: MetResult[list[MetSeries]] = cast(
             MetResult[list[MetSeries]],
-            self._get_metron_content(urljoin(self.api_url, "series/"), params, on_rate_limit=on_rate_limit),
+            self._get_metron_content(urljoin(self.api_url, "series/"), params),
         )
 
         search_results: list[MetSeries] = []
@@ -530,7 +529,7 @@ class MetronTalker(ComicTalker):
             params["page"] = page
             met_response = cast(
                 MetResult[list[MetSeries]],
-                self._get_metron_content(urljoin(self.api_url, "series/"), params, on_rate_limit=on_rate_limit),
+                self._get_metron_content(urljoin(self.api_url, "series/"), params),
             )
 
             search_results.extend(met_response["results"])
@@ -558,18 +557,17 @@ class MetronTalker(ComicTalker):
         issue_id: str | None = None,
         series_id: str | None = None,
         issue_number: str = "",
-        on_rate_limit: RLCallBack | None = None,
     ) -> GenericMetadata:
         comic_data = GenericMetadata()
         if issue_id:
-            comic_data = self._fetch_issue_data_by_issue_id(issue_id, on_rate_limit=on_rate_limit)
+            comic_data = self._fetch_issue_data_by_issue_id(issue_id)
         elif issue_number and series_id:
             # Should never hit this but just in case
-            comic_data = self._fetch_issue_data(int(series_id), issue_number, on_rate_limit=on_rate_limit)
+            comic_data = self._fetch_issue_data(int(series_id), issue_number)
 
         return comic_data
 
-    def fetch_issues_in_series(self, series_id: str, on_rate_limit: RLCallBack | None = None) -> list[GenericMetadata]:
+    def fetch_issues_in_series(self, series_id: str) -> list[GenericMetadata]:
         cache_series_data: MetSeries | None = None
         logger.debug("Fetching all issues in series: %s", series_id)
         # before we search online, look in our cache, since we might already have this info
@@ -579,9 +577,6 @@ class MetronTalker(ComicTalker):
 
         if cached_series_result is not None:
             cache_series_data = json.loads(cached_series_result[0].data)
-
-        # Need the issue count to check against the cached issue list
-        # series_data: MetSeries = self._fetch_series(int(series_id), on_rate_limit=on_rate_limit)
 
         logger.debug(
             "Found %d issues cached",
@@ -614,7 +609,7 @@ class MetronTalker(ComicTalker):
         }
         met_response: MetResult[list[MetIssue]] = cast(
             MetResult[list[MetIssue]],
-            self._get_metron_content(urljoin(self.api_url, "issue/"), params, on_rate_limit=on_rate_limit),
+            self._get_metron_content(urljoin(self.api_url, "issue/"), params),
         )
 
         current_result_count = len(met_response["results"])
@@ -629,7 +624,7 @@ class MetronTalker(ComicTalker):
             params["page"] = page
             met_response = cast(
                 MetResult[list[MetIssue]],
-                self._get_metron_content(urljoin(self.api_url, "issue/"), params, on_rate_limit=on_rate_limit),
+                self._get_metron_content(urljoin(self.api_url, "issue/"), params),
             )
 
             series_issues_result.extend(met_response["results"])
@@ -661,7 +656,6 @@ class MetronTalker(ComicTalker):
         series_id_list: list[str],
         issue_number: str,
         year: str | int | None,
-        on_rate_limit: RLCallBack | None = None,
     ) -> list[GenericMetadata]:
         # At the request of Metron, we will not retrieve the variant covers for matching
         issues_result = []
@@ -702,7 +696,7 @@ class MetronTalker(ComicTalker):
                 # Should only ever be one result
                 met_response: MetResult[list[MetIssue]] = cast(
                     MetResult[list[MetIssue]],
-                    self._get_metron_content(urljoin(self.api_url, "issue/"), params, on_rate_limit=on_rate_limit),
+                    self._get_metron_content(urljoin(self.api_url, "issue/"), params),
                 )
 
                 if met_response["count"] > 0:
@@ -731,13 +725,10 @@ class MetronTalker(ComicTalker):
 
         return issues_result
 
-    def _get_metron_content(
-        self, url: str, params: dict[str, Any], on_rate_limit: RLCallBack | None = None
-    ) -> MetResult[T] | MetSeries | MetIssue | MetError:
+    def _get_metron_content(self, url: str, params: dict[str, Any]) -> MetResult[T] | MetSeries | MetIssue | MetError:
         with limiter.ratelimit(
             "metron",
             delay=True,
-            on_rate_limit=on_rate_limit,
         ):
             met_response: MetResult[T] | MetSeries | MetIssue | MetError = self._get_url_content(url, params)
             if met_response.get("detail"):
@@ -877,14 +868,12 @@ class MetronTalker(ComicTalker):
     def fetch_series(
         self,
         series_id: int,
-        on_rate_limit: RLCallBack | None = None,
     ) -> ComicSeries:
-        return self._format_series(self._fetch_series(series_id, on_rate_limit=on_rate_limit))
+        return self._format_series(self._fetch_series(series_id))
 
     def _fetch_series(
         self,
         series_id: int,
-        on_rate_limit: RLCallBack | None = None,
     ) -> MetSeries:
         logger.debug("Fetching series info: %s", series_id)
 
@@ -906,7 +895,7 @@ class MetronTalker(ComicTalker):
 
         series_url = urljoin(self.api_url, f"series/{series_id}/")
 
-        met_response: MetSeries = cast(MetSeries, self._get_metron_content(series_url, {}, on_rate_limit=on_rate_limit))
+        met_response: MetSeries = cast(MetSeries, self._get_metron_content(series_url, {}))
 
         # False by default, causes delay in showing series window due to fetching issue list for series
         if self.find_series_covers:
@@ -923,11 +912,9 @@ class MetronTalker(ComicTalker):
 
         return met_response
 
-    def _fetch_issue_data(
-        self, series_id: int, issue_number: str, on_rate_limit: RLCallBack | None = None
-    ) -> GenericMetadata:
+    def _fetch_issue_data(self, series_id: int, issue_number: str) -> GenericMetadata:
         # Have to search for an IssueList as Issue is only usable via ID
-        issues_list_results = self.fetch_issues_in_series(str(series_id), on_rate_limit=on_rate_limit)
+        issues_list_results = self.fetch_issues_in_series(str(series_id))
 
         # Loop through issue list to find the required issue info
         f_record = None
@@ -946,10 +933,10 @@ class MetronTalker(ComicTalker):
             return self._map_comic_issue_to_metadata(f_record)
 
         if f_record is not None:
-            return self._fetch_issue_data_by_issue_id(f_record.id, on_rate_limit=on_rate_limit)
+            return self._fetch_issue_data_by_issue_id(f_record.id)
         return GenericMetadata()
 
-    def _fetch_issue_data_by_issue_id(self, issue_id: str, on_rate_limit: RLCallBack | None = None) -> GenericMetadata:
+    def _fetch_issue_data_by_issue_id(self, issue_id: str) -> GenericMetadata:
         cache_series_data: MetSeries | None = None
         cvc = ComicCacher(self.cache_folder, self.version)
         cached_issues_result = cvc.get_issue_info(int(issue_id), self.id)
@@ -968,7 +955,7 @@ class MetronTalker(ComicTalker):
             return self._map_comic_issue_to_metadata(cache_issue_data)
 
         issue_url = urljoin(self.api_url, f"issue/{issue_id}/")
-        met_response: MetIssue = cast(MetIssue, self._get_metron_content(issue_url, {}, on_rate_limit=on_rate_limit))
+        met_response: MetIssue = cast(MetIssue, self._get_metron_content(issue_url, {}))
 
         # Get cached series info
         cached_series_result = cvc.get_series_info(str(cached_issues_result[0].series_id), self.id)
@@ -994,12 +981,12 @@ class MetronTalker(ComicTalker):
         # Now, map the GenericMetadata data to generic metadata
         return self._map_comic_issue_to_metadata(met_response)
 
-    def _fetch_series_cover(self, series_id: int, issue_count: int, on_rate_limit: RLCallBack | None = None) -> str:
+    def _fetch_series_cover(self, series_id: int, issue_count: int) -> str:
         # Metron/Mokkari does not return an image for the series therefore fetch the first issue cover
         url = urljoin(self.api_url, "issue/")
         met_response: MetResult[list[MetIssue]] = cast(
             MetResult[list[MetIssue]],
-            self._get_metron_content(url, {"series_id": series_id}, on_rate_limit=on_rate_limit),
+            self._get_metron_content(url, {"series_id": series_id}),
         )
 
         # Inject a series cover image
