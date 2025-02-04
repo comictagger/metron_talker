@@ -343,7 +343,7 @@ class MetResult(TypedDict, Generic[T]):
 
 
 # Metron has a limit of 30 calls per minute
-limiter = Limiter(RequestRate(3, Duration.MINUTE))
+limiter = Limiter(RequestRate(30, Duration.MINUTE))
 
 
 class MetronTalker(ComicTalker):
@@ -564,27 +564,36 @@ class MetronTalker(ComicTalker):
         if issue_id:
             comic_data = self._fetch_issue_data_by_issue_id(issue_id, on_rate_limit=on_rate_limit)
         elif issue_number and series_id:
+            # Should never hit this but just in case
             comic_data = self._fetch_issue_data(int(series_id), issue_number, on_rate_limit=on_rate_limit)
 
         return comic_data
 
     def fetch_issues_in_series(self, series_id: str, on_rate_limit: RLCallBack | None = None) -> list[GenericMetadata]:
+        cache_series_data: MetSeries | None = None
         logger.debug("Fetching all issues in series: %s", series_id)
         # before we search online, look in our cache, since we might already have this info
         cvc = ComicCacher(self.cache_folder, self.version)
         cached_series_issues_result = cvc.get_series_issues_info(str(series_id), self.id)
+        cached_series_result = cvc.get_series_info(str(series_id), self.id)
+
+        if cached_series_result is not None:
+            cache_series_data = json.loads(cached_series_result[0].data)
 
         # Need the issue count to check against the cached issue list
-        series_data: MetSeries = self._fetch_series(int(series_id), on_rate_limit=on_rate_limit)
+        # series_data: MetSeries = self._fetch_series(int(series_id), on_rate_limit=on_rate_limit)
 
         logger.debug(
-            "Found %d issues cached need %d issues",
+            "Found %d issues cached",
             len(cached_series_issues_result),
-            series_data["issue_count"] - len(cached_series_issues_result),
         )
+        if cache_series_data is not None:
+            logger.debug(" need %d issues", cache_series_data["issue_count"] - len(cached_series_issues_result))
 
-        # Check cache length against count of issues in case a new issue
-        if len(cached_series_issues_result) == series_data["issue_count"]:
+        # Check for stale cache number of issues
+        if cache_series_data is not None and (
+            len(cached_series_issues_result) == cache_series_data.get("issue_count", -1)
+        ):
             # issue number, year, month or cover_image
             # If any of the above are missing it will trigger a call to fetch_comic_data for the full issue info.
             # Because variants are only returned via a full issue call, remove the image URL to trigger this.
@@ -596,11 +605,8 @@ class MetronTalker(ComicTalker):
                     # Check to see if it's a full record before emptying image
                     if not issue_data[1]:
                         issue_data[0]["image"] = ""
-                return [self._map_comic_issue_to_metadata(x[0], series_data) for x in cache_data]
-            return [
-                self._map_comic_issue_to_metadata(json.loads(x[0].data), series_data)
-                for x in cached_series_issues_result
-            ]
+                return [self._map_comic_issue_to_metadata(x[0]) for x in cache_data]
+            return [self._map_comic_issue_to_metadata(json.loads(x[0].data)) for x in cached_series_issues_result]
 
         params = {
             "series_id": series_id,
@@ -646,9 +652,7 @@ class MetronTalker(ComicTalker):
                 issue.image = ""
 
         # Format to expected output
-        formatted_series_issues_result = [
-            self._map_comic_issue_to_metadata(x, series_data) for x in met_response["results"]
-        ]
+        formatted_series_issues_result = [self._map_comic_issue_to_metadata(x) for x in met_response["results"]]
 
         return formatted_series_issues_result
 
@@ -675,22 +679,20 @@ class MetronTalker(ComicTalker):
                 params["cover_year"] = year  # type: ignore
 
             cvc = ComicCacher(self.cache_folder, self.version)
-            # cached_results: list[GenericMetadata] = []
+
             cached_series_issues = cvc.get_series_issues_info(str(series_id), self.id)
             issue_found = False
             if len(cached_series_issues) > 0:
                 for issue, _ in cached_series_issues:
                     issue_data = cast(MetIssue, json.loads(issue.data))
+                    # Inject series_id
+                    issue_data["series"]["id"] = int(series_id)
                     if issue_data.get("number") == issue_number:
                         # Remove image URL to comply with Metron's request due to high bandwidth usage
                         issue_data["image"] = ""
                         issues_result.append(
                             self._map_comic_issue_to_metadata(
                                 issue_data,
-                                self._fetch_series(
-                                    int(series_id),
-                                    on_rate_limit=on_rate_limit,
-                                ),
                             ),
                         )
                         issue_found = True
@@ -704,6 +706,8 @@ class MetronTalker(ComicTalker):
                 )
 
                 if met_response["count"] > 0:
+                    # Inject series_id
+                    met_response["results"][0]["series"]["id"] = int(series_id)
                     # Cache result
                     cvc.add_issues_info(
                         self.id,
@@ -722,10 +726,6 @@ class MetronTalker(ComicTalker):
                     issues_result.append(
                         self._map_comic_issue_to_metadata(
                             met_response["results"][0],
-                            self._fetch_series(
-                                int(series_id),
-                                on_rate_limit=on_rate_limit,
-                            ),
                         )
                     )
 
@@ -943,34 +943,48 @@ class MetronTalker(ComicTalker):
 
         if f_record and f_record.complete:
             # Cache had full record
-            return self._map_comic_issue_to_metadata(f_record, self._fetch_series(series_id))
+            return self._map_comic_issue_to_metadata(f_record)
 
         if f_record is not None:
             return self._fetch_issue_data_by_issue_id(f_record.id, on_rate_limit=on_rate_limit)
         return GenericMetadata()
 
     def _fetch_issue_data_by_issue_id(self, issue_id: str, on_rate_limit: RLCallBack | None = None) -> GenericMetadata:
+        cache_series_data: MetSeries | None = None
         cvc = ComicCacher(self.cache_folder, self.version)
         cached_issues_result = cvc.get_issue_info(int(issue_id), self.id)
 
         if cached_issues_result and cached_issues_result[1]:
-            return self._map_comic_issue_to_metadata(
-                (json.loads(cached_issues_result[0].data)),
-                self._fetch_series(int(cached_issues_result[0].series_id), on_rate_limit=on_rate_limit),
-            )
+            cache_issue_data = json.loads(cached_issues_result[0].data)
+            cached_series_result = cvc.get_series_info(str(cached_issues_result[0].series_id), self.id)
+
+            if cached_series_result is not None:
+                cache_series_data = json.loads(cached_series_result[0].data)
+
+            # Inject issue count
+            if cache_series_data is not None and cache_series_data.get("issue_count") is not None:
+                cache_issue_data["series"]["issue_count"] = cache_series_data["issue_count"]
+
+            return self._map_comic_issue_to_metadata(cache_issue_data)
 
         issue_url = urljoin(self.api_url, f"issue/{issue_id}/")
         met_response: MetIssue = cast(MetIssue, self._get_metron_content(issue_url, {}, on_rate_limit=on_rate_limit))
 
-        # Get full series info
-        series_data: MetSeries = self._fetch_series(met_response["series"]["id"], on_rate_limit=on_rate_limit)
+        # Get cached series info
+        cached_series_result = cvc.get_series_info(str(cached_issues_result[0].series_id), self.id)
+
+        if cached_series_result is not None:
+            # Inject issue count
+            cache_series_data = json.loads(cached_series_result[0].data)
+            if cache_series_data is not None and cache_series_data.get("issue_count") is not None:
+                met_response["series"]["issue_count"] = cache_series_data["issue_count"]
 
         cvc.add_issues_info(
             self.id,
             [
                 CCIssue(
                     id=str(met_response["id"]),
-                    series_id=str(series_data["id"]),
+                    series_id=str(met_response["series"]["id"]),
                     data=json.dumps(met_response).encode("utf-8"),
                 )
             ],
@@ -978,7 +992,7 @@ class MetronTalker(ComicTalker):
         )
 
         # Now, map the GenericMetadata data to generic metadata
-        return self._map_comic_issue_to_metadata(met_response, series_data)
+        return self._map_comic_issue_to_metadata(met_response)
 
     def _fetch_series_cover(self, series_id: int, issue_count: int, on_rate_limit: RLCallBack | None = None) -> str:
         # Metron/Mokkari does not return an image for the series therefore fetch the first issue cover
@@ -996,15 +1010,18 @@ class MetronTalker(ComicTalker):
 
         return img
 
-    def _map_comic_issue_to_metadata(self, issue: MetIssue, series: MetSeries) -> GenericMetadata:
+    def _map_comic_issue_to_metadata(self, issue: MetIssue) -> GenericMetadata:
+        series = issue["series"]
         # Cover both IssueList (with less data) and Issue
         md = GenericMetadata(
             data_origin=MetadataOrigin(self.id, self.name),
             issue_id=utils.xlate(issue["id"]),
-            series_id=utils.xlate(series["id"]),
             issue=utils.xlate(IssueString(issue["number"]).as_string()),
             series=utils.xlate(series["name"]),
         )
+
+        if series.get("id"):
+            md.series_id = utils.xlate(series["id"])
 
         if issue.get("cover_date"):
             if issue["cover_date"]:
@@ -1014,30 +1031,19 @@ class MetronTalker(ComicTalker):
 
         md._cover_image = issue["image"]
 
-        if series.get("publisher"):
-            md.publisher = utils.xlate(series["publisher"].get("name"))
+        if issue.get("publisher"):
+            md.publisher = utils.xlate(issue["publisher"].get("name"))
         if issue.get("imprint"):
             md.imprint = issue["imprint"].get("name")
 
         series_type = -1
         if series.get("series_type"):
-            series_type = series["series_type"]["id"]
+            md.format = series["series_type"].get("name")
 
         # Check if series is ongoing to legitimise issue count OR use option setting
         if series.get("issue_count"):
             if series_type != MetronSeriesType.ongoing.value or self.use_ongoing_issue_count:
                 md.issue_count = utils.xlate_int(series["issue_count"])
-
-        if series_type in (
-            MetronSeriesType.annual_series.value,
-            MetronSeriesType.graphic_novel.value,
-            MetronSeriesType.hard_cover.value,
-            MetronSeriesType.limited_series.value,
-            MetronSeriesType.one_shot.value,
-        ):
-            md.format = series["series_type"]["name"]
-        if series_type == MetronSeriesType.trade_paperback.value:
-            md.format = "TPB"
 
         md.description = issue.get("desc", None)
 
@@ -1086,7 +1092,7 @@ class MetronTalker(ComicTalker):
             for person in issue["credits"]:
                 md.add_credit(person["creator"], person["role"][0]["name"].title().strip(), False)
 
-        md.volume = utils.xlate_int(issue["series"].get("volume"))
+        md.volume = utils.xlate_int(series.get("volume"))
         if self.use_series_start_as_volume:
             md.volume = series.get("year_began")
 
