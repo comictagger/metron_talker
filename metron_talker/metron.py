@@ -1077,7 +1077,11 @@ class MetronTalker(ComicTalker):
 
         if issue.get("credits"):
             for person in issue["credits"]:
-                md.add_credit(person["creator"], person["role"][0]["name"].title().strip(), False)
+                person_name = person.get("creator", "")
+                # A person is not required to have a role, metron returns an empty list
+                roles = [role["name"] for role in person["role"]] if person["role"] else [""]
+                for role in roles:
+                    md.add_credit(person_name, role, False)
 
         md.volume = utils.xlate_int(series.get("volume"))
         if self.use_series_start_as_volume:
