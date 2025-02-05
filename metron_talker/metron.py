@@ -178,6 +178,7 @@ class MetIssue(TypedDict, total=False):
     imprint: MetShortImp
     series: MetSeries
     number: str
+    alt_number: str
     title: str
     issue: str  # IssueList only
     name: list[str]
@@ -1017,6 +1018,9 @@ class MetronTalker(ComicTalker):
                 md.year = utils.xlate_int(series["year_began"])
 
         md._cover_image = issue["image"]
+
+        if issue.get("alt_number"):
+            md.alternate_number = issue["alt_number"]
 
         if issue.get("publisher"):
             md.publisher = utils.xlate(issue["publisher"].get("name"))
