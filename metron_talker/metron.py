@@ -353,12 +353,17 @@ class MetronTalker(ComicTalker):
     comictagger_min_ver: str = "1.6.0a13"
     website: str = "https://metron.cloud"
     logo_url: str = "https://static.metron.cloud/static/site/img/metron.svg"
-    attribution: str = f"Metadata provided by <a href='{website}'>{name}</a>"
+    attribution: str = (
+        f"Metadata provided by <a href='{website}'>{name}</a><br>"
+        f"Help support {name} with a <a href='https://opencollective.com/metron'>donation</a>"
+    )
     about: str = (
         f"<a href='{website}'>{name}</a> is a community-based site whose goal is to build an open database "
-        f"with a REST API for comic books. <p>NOTE: An account on <a href='{website}'>{name}</a> is "
-        f"required to use its API.</p><p>NOTE: Automatic image comparisons are not available due to the"
-        f"extra bandwidth require. Donations will be accepted soon, check the website.</p>"
+        f"with a REST API for comic books.<br>"
+        f"Please support Metron's costs and further development by "
+        f"<a href='https://opencollective.com/metron'>donating</a> if you are able, thank you."
+        f"<p>NOTE: An account on <a href='{website}'>{name}</a> is required to use its API.<br>"
+        f"NOTE: Automatic image comparisons are not available due to the extra bandwidth require.</p>"
     )
 
     def __init__(self, version: str, cache_folder: pathlib.Path):
