@@ -31,7 +31,7 @@ from urllib.parse import urljoin
 
 import settngs
 from comicapi import utils
-from comicapi.genericmetadata import ComicSeries, GenericMetadata, MetadataOrigin, ImageHash
+from comicapi.genericmetadata import ComicSeries, GenericMetadata, ImageHash, MetadataOrigin
 from comicapi.issuestring import IssueString
 from comicapi.utils import LocationParseError, parse_url
 from comictalker import talker_utils
