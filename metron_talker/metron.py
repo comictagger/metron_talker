@@ -31,7 +31,7 @@ from urllib.parse import urljoin
 
 import settngs
 from comicapi import utils
-from comicapi.genericmetadata import ComicSeries, GenericMetadata, MetadataOrigin
+from comicapi.genericmetadata import ComicSeries, GenericMetadata, MetadataOrigin, ImageHash
 from comicapi.issuestring import IssueString
 from comicapi.utils import LocationParseError, parse_url
 from comictalker import talker_utils
@@ -350,7 +350,7 @@ limiter = Limiter(RequestRate(30, Duration.MINUTE))
 class MetronTalker(ComicTalker):
     name: str = "Metron"
     id: str = "metron"
-    comictagger_min_ver: str = "1.6.0a13"
+    comictagger_min_ver: str = "1.6.0b5"
     website: str = "https://metron.cloud"
     logo_url: str = "https://static.metron.cloud/static/site/img/metron.svg"
     attribution: str = (
@@ -374,7 +374,6 @@ class MetronTalker(ComicTalker):
         self.username: str = ""
         self.user_password: str = self.api_key
         self.use_series_start_as_volume: bool = False
-        self.display_variants: bool = False
         self.use_ongoing_issue_count: bool = False
         self.find_series_covers: bool = False
 
@@ -595,18 +594,6 @@ class MetronTalker(ComicTalker):
         if cache_series_data is not None and (
             len(cached_series_issues_result) == cache_series_data.get("issue_count", -1)
         ):
-            # issue number, year, month or cover_image
-            # If any of the above are missing it will trigger a call to fetch_comic_data for the full issue info.
-            # Because variants are only returned via a full issue call, remove the image URL to trigger this.
-            if self.display_variants:
-                cache_data: list[tuple[MetIssue, bool]] = []
-                for issue in cached_series_issues_result:
-                    cache_data.append((json.loads(issue[0].data), issue[1]))
-                for issue_data in cache_data:
-                    # Check to see if it's a full record before emptying image
-                    if not issue_data[1]:
-                        issue_data[0]["image"] = ""
-                return [self._map_comic_issue_to_metadata(x[0]) for x in cache_data]
             return [self._map_comic_issue_to_metadata(json.loads(x[0].data)) for x in cached_series_issues_result]
 
         params = {
@@ -647,11 +634,6 @@ class MetronTalker(ComicTalker):
             False,
         )
 
-        # Same variant covers mechanism as above. This should only affect the GUI
-        if self.display_variants:
-            for issue in series_issues_result:
-                issue.image = ""
-
         # Format to expected output
         formatted_series_issues_result = [self._map_comic_issue_to_metadata(x) for x in series_issues_result]
 
@@ -688,8 +670,6 @@ class MetronTalker(ComicTalker):
                     # Inject series_id
                     issue_data["series"]["id"] = int(series_id)
                     if issue_data.get("number") == issue_number:
-                        # Remove image URL to comply with Metron's request due to high bandwidth usage
-                        issue_data["image"] = ""
                         issues_result.append(
                             self._map_comic_issue_to_metadata(
                                 issue_data,
@@ -721,8 +701,6 @@ class MetronTalker(ComicTalker):
                         False,
                     )
 
-                    # Remove image URL to comply with Metron's request due to high bandwidth usage
-                    met_response["results"][0]["image"] = ""
                     issues_result.append(
                         self._map_comic_issue_to_metadata(
                             met_response["results"][0],
@@ -1022,7 +1000,7 @@ class MetronTalker(ComicTalker):
             elif series["year_began"]:
                 md.year = utils.xlate_int(series["year_began"])
 
-        md._cover_image = issue["image"]
+        md._cover_image = ImageHash(Hash=int(issue["cover_hash"], 16) or 0, Kind="phash", URL=issue.get("image", ""))
 
         if issue.get("alt_number"):
             md.alternate_number = issue["alt_number"]
@@ -1069,8 +1047,8 @@ class MetronTalker(ComicTalker):
                 ...
 
         if issue.get("variants"):
-            for alt in issue["variants"]:
-                md._alternate_images.append(alt["image"])
+            for i, alt in enumerate(issue["variants"]):
+                md._alternate_images.append(ImageHash(Hash=0, Kind="phash", URL=alt["image"]))
 
         if issue.get("characters"):
             for character in issue["characters"]:
