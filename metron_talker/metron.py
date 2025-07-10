@@ -39,7 +39,7 @@ from comictalker.comiccacher import ComicCacher
 from comictalker.comiccacher import Issue as CCIssue
 from comictalker.comiccacher import Series as CCSeries
 from comictalker.comictalker import ComicTalker, TalkerDataError, TalkerNetworkError
-from pyrate_limiter import Duration, Limiter, RequestRate
+from pyrate_limiter import Duration, Limiter, RequestRate, SQLiteBucket
 from typing_extensions import TypedDict  # Workaround bug in 3.9 and 3.10
 
 try:
@@ -343,8 +343,12 @@ class MetResult(TypedDict, Generic[T]):
     results: T
 
 
-# Metron has a limit of 30 calls per minute
-limiter = Limiter(RequestRate(30, Duration.MINUTE))
+# Metron has a limit of 30 calls per minute AND 10k per day
+rate_limits = (
+    RequestRate(30, Duration.MINUTE),
+    RequestRate(10000, Duration.DAY),
+)
+limiter = Limiter(*rate_limits, bucket_class=SQLiteBucket)
 
 
 class MetronTalker(ComicTalker):
@@ -363,6 +367,7 @@ class MetronTalker(ComicTalker):
         f"Please support Metron's costs and further development by "
         f"<a href='https://opencollective.com/metron'>donating</a> if you are able, thank you."
         f"<p>NOTE: An account on <a href='{website}'>{name}</a> is required to use its API.<br>"
+        f"There is a limit of 30 requests per minute AND a daily limit of 10k requests."
         f"NOTE: Automatic image comparisons are not available due to the extra bandwidth require.</p>"
     )
 
@@ -731,23 +736,28 @@ class MetronTalker(ComicTalker):
                     headers={"user-agent": "comictagger/" + self.version},
                     auth=HTTPBasicAuth(self.username, self.api_key),
                 )
-                if resp.status_code == 200:
+                if resp.status_code == requests.codes.ok:
                     if resp.headers["Content-Type"].split(";")[0] == "text/html":
                         logger.debug("Request exception: Returned text/html. Most likely a 404 error page.")
                         raise TalkerNetworkError(
                             self.name, 0, "Request exception: Returned text/html. Most likely a 404 error page."
                         )
                     return resp.json()
-                if resp.status_code == 500:
+                elif resp.status_code == requests.codes.internal_server_error:
                     logger.debug(f"Try #{tries + 1}: ")
                     time.sleep(1)
                     logger.debug(str(resp.status_code))
-                if resp.status_code == 403:
+                elif resp.status_code == requests.codes.forbidden:
                     logger.debug("Access denied. Wrong username or password?")
                     raise TalkerNetworkError(self.name, 1, "Access denied. Wrong username or password?")
-                if resp.status_code == 401:
+                elif resp.status_code == requests.codes.unauthorized:
                     logger.debug("Access denied. Invalid username or password.")
                     raise TalkerNetworkError(self.name, 1, "Access denied. Invalid username or password.")
+                elif resp.status_code == requests.codes.too_many_requests:
+                    # limiter should do the heavy lifting here but if something is awry...
+                    wait_time_seconds = int(resp.headers.get("Retry-After", 1))
+                    logger.warning(f"Too many requests! Will wait: {wait_time_seconds} seconds...")
+                    time.sleep(wait_time_seconds)
                 else:
                     break
 
