@@ -18,6 +18,7 @@ Metron.cloud information source for Comic Tagger
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import logging
 import pathlib
@@ -348,7 +349,6 @@ rate_limits = (
     RequestRate(30, Duration.MINUTE),
     RequestRate(10000, Duration.DAY),
 )
-limiter = Limiter(*rate_limits, bucket_class=SQLiteBucket)
 
 
 class MetronTalker(ComicTalker):
@@ -373,6 +373,14 @@ class MetronTalker(ComicTalker):
 
     def __init__(self, version: str, cache_folder: pathlib.Path):
         super().__init__(version, cache_folder)
+        self.limiter = Limiter(
+            *rate_limits,
+            bucket_class=SQLiteBucket,
+            bucket_kwargs={"path": cache_folder.joinpath("metron_bucket.sqlite")},
+            time_function=lambda: datetime.datetime.now(
+                datetime.timezone.utc
+            ).timestamp(),  # monotonic has issue on MacOS py3.9 (and Linux sleep)
+        )
         # Default settings
         self.default_api_url = self.api_url = f"{self.website}/api/"
         self.default_api_key = self.api_key = ""
@@ -715,7 +723,7 @@ class MetronTalker(ComicTalker):
         return issues_result
 
     def _get_metron_content(self, url: str, params: dict[str, Any]) -> MetResult[T] | MetSeries | MetIssue | MetError:
-        with limiter.ratelimit(
+        with self.limiter.ratelimit(
             "metron",
             delay=True,
         ):
